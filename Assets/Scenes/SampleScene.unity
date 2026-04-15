@@ -316,9 +316,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a613393aa25740f4a9675aa66f756248, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ChunkManager
-  radiusX: 1
-  radiusZ: 1
-  layersY: 1
+  streamingTarget: {fileID: 1500000001}
+  viewDistanceInChunks: 1
+  minLayerY: 0
+  maxLayerY: 0
+  maxChunkLoadsPerFrame: 4
   material: {fileID: 1855646143}
   voxelAtlas: {fileID: 2800000, guid: f5b65f01b0c9403984a57d1d77d9c3a6, type: 3}
   editCamera: {fileID: 330585545}

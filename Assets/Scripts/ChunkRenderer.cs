@@ -52,6 +52,12 @@ public sealed class ChunkRenderer : MonoBehaviour
         EnsureMaterial();
     }
 
+    public void UpdateNeighborhood(ChunkNeighborhood chunkNeighborhood)
+    {
+        neighborhood = chunkNeighborhood;
+        chunkData = chunkNeighborhood.Center;
+    }
+
     private void Start()
     {
         if (chunkData == null)

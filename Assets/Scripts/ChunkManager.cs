@@ -3,9 +3,11 @@ using UnityEngine;
 
 public sealed class ChunkManager : MonoBehaviour
 {
-    [SerializeField] private int radiusX = 1;
-    [SerializeField] private int radiusZ = 1;
-    [SerializeField] private int layersY = 1;
+    [SerializeField] private Transform streamingTarget;
+    [SerializeField] private int viewDistanceInChunks = 1;
+    [SerializeField] private int minLayerY = 0;
+    [SerializeField] private int maxLayerY = 0;
+    [SerializeField] private int maxChunkLoadsPerFrame = 4;
     [SerializeField] private Material material;
     [SerializeField] private Texture2D voxelAtlas;
     [SerializeField] private Camera editCamera;
@@ -19,18 +21,28 @@ public sealed class ChunkManager : MonoBehaviour
     private readonly Dictionary<ChunkPos, ChunkData> chunks = new();
     private readonly Dictionary<ChunkPos, ChunkRenderer> renderers = new();
     private readonly IMeshBuilder meshBuilder = new NaiveMeshBuilder();
+    private readonly ChunkLoadScheduler loadScheduler = new();
     private IWorldGenerator worldGenerator;
+    private IChunkStreamingPolicy streamingPolicy;
+    private ChunkPos? currentCenterChunk;
 
     private void Start()
     {
-        BuildFixedGrid();
+        worldGenerator = new NoiseWorldGenerator(seed, noiseScale, baseHeight, heightAmplitude);
+        RebuildStreamingPolicy();
+        UpdateStreaming(force: true);
+    }
+
+    private void Update()
+    {
+        UpdateStreaming(force: false);
     }
 
     private void OnValidate()
     {
-        radiusX = Mathf.Max(0, radiusX);
-        radiusZ = Mathf.Max(0, radiusZ);
-        layersY = Mathf.Max(1, layersY);
+        viewDistanceInChunks = Mathf.Max(0, viewDistanceInChunks);
+        maxLayerY = Mathf.Max(minLayerY, maxLayerY);
+        maxChunkLoadsPerFrame = Mathf.Max(1, maxChunkLoadsPerFrame);
         editDistance = Mathf.Max(0.1f, editDistance);
         placeVoxelType = (byte)Mathf.Clamp(placeVoxelType, VoxelType.Dirt, VoxelType.Sand);
         noiseScale = Mathf.Max(0.001f, noiseScale);
@@ -38,41 +50,59 @@ public sealed class ChunkManager : MonoBehaviour
         heightAmplitude = Mathf.Max(1, heightAmplitude);
     }
 
-    [ContextMenu("Build Fixed Grid")]
-    private void BuildFixedGrid()
+    [ContextMenu("Rebuild Streaming World")]
+    private void BuildStreamingWorld()
     {
         ClearRuntimeChunks();
         chunks.Clear();
         renderers.Clear();
         worldGenerator = new NoiseWorldGenerator(seed, noiseScale, baseHeight, heightAmplitude);
+        RebuildStreamingPolicy();
+        currentCenterChunk = null;
+        UpdateStreaming(force: true);
+    }
 
-        // 1단계: 데이터만 먼저 전부 만듭니다.
-        // 렌더러를 바로 만들면 아직 생성되지 않은 청크를 이웃으로 찾을 수 없습니다.
-        for (int y = 0; y < layersY; y++)
+    private void RebuildStreamingPolicy()
+    {
+        streamingPolicy = new SquareStreamingPolicy(viewDistanceInChunks, minLayerY, maxLayerY);
+    }
+
+    private void UpdateStreaming(bool force)
+    {
+        if (worldGenerator == null)
         {
-            for (int z = -radiusZ; z <= radiusZ; z++)
-            {
-                for (int x = -radiusX; x <= radiusX; x++)
-                {
-                    var chunkPos = new ChunkPos(x, y, z);
-                    ChunkData chunkData = CreateChunkData(chunkPos);
-                    chunks.Add(chunkPos, chunkData);
-                }
-            }
+            worldGenerator = new NoiseWorldGenerator(seed, noiseScale, baseHeight, heightAmplitude);
         }
 
-        // 2단계: 완성된 청크 딕셔너리를 기준으로 각 렌더러에 6방향 이웃을 연결합니다.
-        for (int y = 0; y < layersY; y++)
+        if (streamingPolicy == null)
         {
-            for (int z = -radiusZ; z <= radiusZ; z++)
-            {
-                for (int x = -radiusX; x <= radiusX; x++)
-                {
-                    var chunkPos = new ChunkPos(x, y, z);
-                    CreateChunkRenderer(chunkPos, CreateNeighborhood(chunkPos));
-                }
-            }
+            RebuildStreamingPolicy();
         }
+
+        ChunkPos targetChunk = GetStreamingCenterChunk();
+        IReadOnlyCollection<ChunkPos> requiredChunks = streamingPolicy.GetRequiredChunks(targetChunk);
+
+        // 필요한 청크가 9개여도 한 프레임에는 maxChunkLoadsPerFrame개만 만듭니다.
+        // 그래서 플레이어가 같은 청크에 머물러 있어도, 아직 못 만든 청크가 있으면
+        // 다음 프레임에도 스트리밍 갱신을 계속해야 합니다.
+        // currentCenterChunk가 null이면 아직 비교할 이전 중심 청크가 없다는 뜻입니다.
+        // 하지만 실제로 계속 로드할지 여부는 아래 hasMissingChunks가 판단합니다.
+        bool centerChanged = !currentCenterChunk.HasValue || !targetChunk.Equals(currentCenterChunk.Value);
+        bool hasMissingChunks = HasMissingChunks(requiredChunks);
+
+        if (!force && !centerChanged && !hasMissingChunks)
+        {
+            return;
+        }
+
+        currentCenterChunk = targetChunk;
+
+        // requiredChunks는 "지금 월드에 있어야 하는 청크 목록"입니다.
+        // 목록에서 빠진 기존 청크는 삭제하고, 목록에 있는데 아직 없는 청크는 새로 만듭니다.
+        // 마지막으로 새 이웃 관계를 기준으로 경계 면을 다시 계산합니다.
+        UnloadMissingChunks(requiredChunks);
+        LoadRequiredChunks(requiredChunks, targetChunk);
+        RebuildLoadedNeighborhoods();
     }
 
     private void CreateChunkRenderer(ChunkPos chunkPos, ChunkNeighborhood neighborhood)
@@ -93,6 +123,91 @@ public sealed class ChunkManager : MonoBehaviour
             editedLocalPos => RebuildNeighborsTouchedByEdit(chunkPos, editedLocalPos));
 
         renderers.Add(chunkPos, renderer);
+    }
+
+    private ChunkPos GetStreamingCenterChunk()
+    {
+        Transform target = streamingTarget != null ? streamingTarget : transform;
+
+        // 월드 좌표를 바로 청크 좌표로 바꿉니다.
+        // 음수 좌표에서도 올바르게 동작해야 하므로 WorldPos 내부의 floor div/floor mod 규칙을 사용합니다.
+        WorldPos worldPos = WorldPos.FromVector3Floor(target.position);
+        return worldPos.ToChunkPos(ChunkData.DefaultSize);
+    }
+
+    private void UnloadMissingChunks(IReadOnlyCollection<ChunkPos> requiredChunks)
+    {
+        var requiredSet = new HashSet<ChunkPos>(requiredChunks);
+        var chunksToUnload = new List<ChunkPos>();
+
+        foreach (ChunkPos chunkPos in chunks.Keys)
+        {
+            if (!requiredSet.Contains(chunkPos))
+            {
+                // Dictionary를 foreach 중에 직접 수정하면 예외가 납니다.
+                // 먼저 제거할 키만 따로 모은 뒤, 아래 루프에서 실제 삭제합니다.
+                chunksToUnload.Add(chunkPos);
+            }
+        }
+
+        foreach (ChunkPos chunkPos in chunksToUnload)
+        {
+            chunks.Remove(chunkPos);
+
+            if (renderers.TryGetValue(chunkPos, out ChunkRenderer renderer))
+            {
+                renderers.Remove(chunkPos);
+                Destroy(renderer.gameObject);
+            }
+        }
+    }
+
+    private bool HasMissingChunks(IReadOnlyCollection<ChunkPos> requiredChunks)
+    {
+        foreach (ChunkPos chunkPos in requiredChunks)
+        {
+            if (!chunks.ContainsKey(chunkPos))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void LoadRequiredChunks(IReadOnlyCollection<ChunkPos> requiredChunks, ChunkPos centerChunk)
+    {
+        var chunksToLoad = new List<ChunkPos>();
+        foreach (ChunkPos chunkPos in requiredChunks)
+        {
+            if (!chunks.ContainsKey(chunkPos))
+            {
+                chunksToLoad.Add(chunkPos);
+            }
+        }
+
+        List<ChunkPos> sortedChunks = loadScheduler.SortByDistance(chunksToLoad, centerChunk);
+        int loadCount = Mathf.Min(maxChunkLoadsPerFrame, sortedChunks.Count);
+        for (int i = 0; i < loadCount; i++)
+        {
+            // 이번 단계에서는 생성과 메시 빌드를 모두 메인 스레드에서 처리합니다.
+            // 일부러 프레임당 개수를 제한해 끊김을 관찰하고, 다음 단계의 비동기화 필요성을 확인합니다.
+            ChunkPos chunkPos = sortedChunks[i];
+            ChunkData chunkData = CreateChunkData(chunkPos);
+            chunks.Add(chunkPos, chunkData);
+            CreateChunkRenderer(chunkPos, CreateNeighborhood(chunkPos));
+        }
+    }
+
+    private void RebuildLoadedNeighborhoods()
+    {
+        foreach (KeyValuePair<ChunkPos, ChunkRenderer> pair in renderers)
+        {
+            // 새 청크가 로드되거나 기존 청크가 언로드되면 경계 면 판정이 달라집니다.
+            // 그래서 로드된 렌더러는 최신 이웃 정보를 받은 뒤 다시 메시를 만들어야 합니다.
+            pair.Value.UpdateNeighborhood(CreateNeighborhood(pair.Key));
+            pair.Value.RebuildMesh();
+        }
     }
 
     private ChunkData CreateChunkData(ChunkPos chunkPos)
