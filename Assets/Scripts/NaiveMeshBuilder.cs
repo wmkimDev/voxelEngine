@@ -9,7 +9,7 @@ public sealed class ChunkMeshData
     public readonly List<Vector2> Uvs = new();
 }
 
-public sealed class ChunkMeshBuilder
+public sealed class NaiveMeshBuilder : IMeshBuilder
 {
     // 각 면이 바라보는 방향입니다.
     // 이 방향으로 voxel 하나만큼 이동해서 이웃 voxel이 공기인지 검사합니다.
@@ -43,7 +43,7 @@ public sealed class ChunkMeshBuilder
         new Vector2(1, 0),
     };
 
-    public ChunkMeshData Build(ChunkData chunkData)
+    public ChunkMeshData Build(IChunkDataStore chunkData)
     {
         var meshData = new ChunkMeshData();
 
@@ -53,12 +53,12 @@ public sealed class ChunkMeshBuilder
             {
                 for (int x = 0; x < chunkData.Size; x++)
                 {
-                    if (!chunkData.IsSolid(x, y, z))
+                    byte voxelType = chunkData.GetVoxel(x, y, z);
+                    if (voxelType == VoxelType.Air)
                     {
                         continue;
                     }
 
-                    byte voxelType = chunkData.GetVoxel(x, y, z);
                     var voxelLocalPosition = new Vector3(x, y, z);
 
                     for (int face = 0; face < FaceNormals.Length; face++)
@@ -70,7 +70,7 @@ public sealed class ChunkMeshBuilder
                         int neighborY = y + (int)normal.y;
                         int neighborZ = z + (int)normal.z;
 
-                        if (chunkData.IsSolid(neighborX, neighborY, neighborZ))
+                        if (chunkData.GetVoxel(neighborX, neighborY, neighborZ) != VoxelType.Air)
                         {
                             continue;
                         }
@@ -117,10 +117,10 @@ public sealed class ChunkMeshBuilder
         // Dirt, Grass, Stone, Sand가 각각 다른 x 영역을 씁니다.
         int tileIndex = voxelType switch
         {
-            ChunkData.Dirt => 0,
-            ChunkData.Grass => 1,
-            ChunkData.Stone => 2,
-            ChunkData.Sand => 3,
+            VoxelType.Dirt => 0,
+            VoxelType.Grass => 1,
+            VoxelType.Stone => 2,
+            VoxelType.Sand => 3,
             _ => 0
         };
 

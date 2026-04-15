@@ -1,16 +1,8 @@
 using System;
 
-public sealed class ChunkData
+public sealed class ChunkData : IChunkDataStore
 {
     public const int DefaultSize = 8;
-
-    // 지금은 byte 값 전체를 voxel 타입 ID로 씁니다.
-    // 예: 0 = Air, 1 = Dirt, 2 = Grass, 3 = Stone, 4 = Sand
-    public const byte Air = 0;
-    public const byte Dirt = 1;
-    public const byte Grass = 2;
-    public const byte Stone = 3;
-    public const byte Sand = 4;
 
     private readonly byte[] voxels;
 
@@ -31,7 +23,7 @@ public sealed class ChunkData
     {
         if (!IsInsideChunk(x, y, z))
         {
-            return Air;
+            return VoxelType.Air;
         }
 
         return voxels[ToIndex(x, y, z)];
@@ -49,7 +41,7 @@ public sealed class ChunkData
 
     public bool IsSolid(int x, int y, int z)
     {
-        return GetVoxel(x, y, z) != Air;
+        return GetVoxel(x, y, z) != VoxelType.Air;
     }
 
     public bool IsInsideChunk(int x, int y, int z)

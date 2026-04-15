@@ -8,10 +8,10 @@ public sealed class ChunkRenderer : MonoBehaviour
     [SerializeField] private Texture2D voxelAtlas;
     [SerializeField] private Camera editCamera;
     [SerializeField] private float editDistance = 30f;
-    [SerializeField] private byte placeVoxelType = ChunkData.Grass;
+    [SerializeField] private byte placeVoxelType = VoxelType.Grass;
 
-    private readonly ChunkMeshBuilder meshBuilder = new();
-    private ChunkData chunkData;
+    private readonly IMeshBuilder meshBuilder = new NaiveMeshBuilder();
+    private IChunkDataStore chunkData;
     private Mesh generatedMesh;
 
     [ContextMenu("Reset Demo Chunk")]
@@ -36,7 +36,7 @@ public sealed class ChunkRenderer : MonoBehaviour
     private void OnValidate()
     {
         editDistance = Mathf.Max(0.1f, editDistance);
-        placeVoxelType = (byte)Mathf.Clamp(placeVoxelType, ChunkData.Dirt, ChunkData.Sand);
+        placeVoxelType = (byte)Mathf.Clamp(placeVoxelType, VoxelType.Dirt, VoxelType.Sand);
 
         if (!isActiveAndEnabled || chunkData == null)
         {
@@ -62,7 +62,7 @@ public sealed class ChunkRenderer : MonoBehaviour
         }
     }
 
-    private void FillHardcodedChunk(ChunkData data)
+    private void FillHardcodedChunk(IChunkDataStore data)
     {
         // 먼저 y 높이에 따라 다른 voxel 타입으로 채웁니다.
         // 같은 byte 배열 안에서도 1은 Dirt, 2는 Grass, 3은 Stone처럼 의미를 나눌 수 있습니다.
@@ -72,7 +72,7 @@ public sealed class ChunkRenderer : MonoBehaviour
             {
                 for (int x = 0; x < data.Size; x++)
                 {
-                    data.SetVoxel(x, y, z, GetVoxelTypeForHeight(y));
+                    data.SetVoxel(x, y, z, GetVoxelTypeForHeight(y, data.Size));
                 }
             }
         }
@@ -85,7 +85,7 @@ public sealed class ChunkRenderer : MonoBehaviour
             {
                 for (int x = 2; x <= 5; x++)
                 {
-                    data.SetVoxel(x, y, z, ChunkData.Air);
+                    data.SetVoxel(x, y, z, VoxelType.Air);
                 }
             }
         }
@@ -98,7 +98,7 @@ public sealed class ChunkRenderer : MonoBehaviour
             {
                 for (int x = 3; x <= 4; x++)
                 {
-                    data.SetVoxel(x, y, z, ChunkData.Air);
+                    data.SetVoxel(x, y, z, VoxelType.Air);
                 }
             }
         }
@@ -110,7 +110,7 @@ public sealed class ChunkRenderer : MonoBehaviour
             {
                 for (int x = 0; x <= 2; x++)
                 {
-                    data.SetVoxel(x, y, z, ChunkData.Sand);
+                    data.SetVoxel(x, y, z, VoxelType.Sand);
                 }
             }
         }
@@ -258,7 +258,7 @@ public sealed class ChunkRenderer : MonoBehaviour
             return;
         }
 
-        byte nextValue = place ? placeVoxelType : ChunkData.Air;
+        byte nextValue = place ? placeVoxelType : VoxelType.Air;
         if (chunkData.GetVoxel(x, y, z) == nextValue)
         {
             return;
@@ -288,18 +288,18 @@ public sealed class ChunkRenderer : MonoBehaviour
         return chunkData != null && chunkData.IsInsideChunk(x, y, z);
     }
 
-    private static byte GetVoxelTypeForHeight(int y)
+    private static byte GetVoxelTypeForHeight(int y, int chunkSize)
     {
-        if (y == ChunkData.DefaultSize - 1)
+        if (y == chunkSize - 1)
         {
-            return ChunkData.Grass;
+            return VoxelType.Grass;
         }
 
         if (y <= 1)
         {
-            return ChunkData.Stone;
+            return VoxelType.Stone;
         }
 
-        return ChunkData.Dirt;
+        return VoxelType.Dirt;
     }
 }
