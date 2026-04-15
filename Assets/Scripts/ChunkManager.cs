@@ -11,10 +11,15 @@ public sealed class ChunkManager : MonoBehaviour
     [SerializeField] private Camera editCamera;
     [SerializeField] private float editDistance = 30f;
     [SerializeField] private byte placeVoxelType = VoxelType.Grass;
+    [SerializeField] private int seed = 12345;
+    [SerializeField] private float noiseScale = 18f;
+    [SerializeField] private int baseHeight = 2;
+    [SerializeField] private int heightAmplitude = 5;
 
     private readonly Dictionary<ChunkPos, ChunkData> chunks = new();
     private readonly Dictionary<ChunkPos, ChunkRenderer> renderers = new();
     private readonly IMeshBuilder meshBuilder = new NaiveMeshBuilder();
+    private IWorldGenerator worldGenerator;
 
     private void Start()
     {
@@ -28,6 +33,9 @@ public sealed class ChunkManager : MonoBehaviour
         layersY = Mathf.Max(1, layersY);
         editDistance = Mathf.Max(0.1f, editDistance);
         placeVoxelType = (byte)Mathf.Clamp(placeVoxelType, VoxelType.Dirt, VoxelType.Sand);
+        noiseScale = Mathf.Max(0.001f, noiseScale);
+        baseHeight = Mathf.Max(0, baseHeight);
+        heightAmplitude = Mathf.Max(1, heightAmplitude);
     }
 
     [ContextMenu("Build Fixed Grid")]
@@ -36,6 +44,7 @@ public sealed class ChunkManager : MonoBehaviour
         ClearRuntimeChunks();
         chunks.Clear();
         renderers.Clear();
+        worldGenerator = new NoiseWorldGenerator(seed, noiseScale, baseHeight, heightAmplitude);
 
         // 1단계: 데이터만 먼저 전부 만듭니다.
         // 렌더러를 바로 만들면 아직 생성되지 않은 청크를 이웃으로 찾을 수 없습니다.
@@ -46,7 +55,7 @@ public sealed class ChunkManager : MonoBehaviour
                 for (int x = -radiusX; x <= radiusX; x++)
                 {
                     var chunkPos = new ChunkPos(x, y, z);
-                    ChunkData chunkData = CreateDemoChunkData(chunkPos);
+                    ChunkData chunkData = CreateChunkData(chunkPos);
                     chunks.Add(chunkPos, chunkData);
                 }
             }
@@ -86,58 +95,12 @@ public sealed class ChunkManager : MonoBehaviour
         renderers.Add(chunkPos, renderer);
     }
 
-    private ChunkData CreateDemoChunkData(ChunkPos chunkPos)
+    private ChunkData CreateChunkData(ChunkPos chunkPos)
     {
         var data = new ChunkData();
-
-        // 아직 월드 생성기는 없습니다. 청크별로 같은 규칙을 반복해 3x3x1 격자를 눈으로 확인합니다.
-        for (int z = 0; z < data.Size; z++)
-        {
-            for (int y = 0; y < data.Size; y++)
-            {
-                for (int x = 0; x < data.Size; x++)
-                {
-                    data.SetVoxel(new LocalPos(x, y, z), GetVoxelTypeForHeight(y, data.Size));
-                }
-            }
-        }
-
-        // 각 청크마다 같은 구멍을 파서 청크가 독립적으로 생성되고 있음을 확인합니다.
-        for (int z = 2; z <= 5; z++)
-        {
-            for (int y = 2; y <= 5; y++)
-            {
-                for (int x = 2; x <= 5; x++)
-                {
-                    data.SetVoxel(new LocalPos(x, y, z), VoxelType.Air);
-                }
-            }
-        }
-
-        for (int z = 0; z <= 2; z++)
-        {
-            for (int y = 2; y <= 4; y++)
-            {
-                for (int x = 3; x <= 4; x++)
-                {
-                    data.SetVoxel(new LocalPos(x, y, z), VoxelType.Air);
-                }
-            }
-        }
-
-        // 한쪽 모서리 색을 청크 좌표에 따라 조금 다르게 배치해 청크 경계를 구분하기 쉽게 합니다.
-        int sandStartX = chunkPos.X % 2 == 0 ? 0 : 5;
-        for (int z = 5; z <= 7; z++)
-        {
-            for (int y = 1; y <= 3; y++)
-            {
-                for (int x = sandStartX; x <= sandStartX + 2; x++)
-                {
-                    data.SetVoxel(new LocalPos(x, y, z), VoxelType.Sand);
-                }
-            }
-        }
-
+        // ChunkManager는 "언제 어떤 청크를 만들지"만 결정합니다.
+        // 실제 voxel 배치는 IWorldGenerator 구현체가 담당합니다.
+        worldGenerator.Generate(chunkPos, data);
         return data;
     }
 
@@ -228,18 +191,4 @@ public sealed class ChunkManager : MonoBehaviour
         }
     }
 
-    private static byte GetVoxelTypeForHeight(int y, int chunkSize)
-    {
-        if (y == chunkSize - 1)
-        {
-            return VoxelType.Grass;
-        }
-
-        if (y <= 1)
-        {
-            return VoxelType.Stone;
-        }
-
-        return VoxelType.Dirt;
-    }
 }

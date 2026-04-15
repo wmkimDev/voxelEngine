@@ -340,6 +340,10 @@ MonoBehaviour:
   editCamera: {fileID: 330585545}
   editDistance: 30
   placeVoxelType: 2
+  seed: 12345
+  noiseScale: 10
+  baseHeight: 1
+  heightAmplitude: 20
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0
