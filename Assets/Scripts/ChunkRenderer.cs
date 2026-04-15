@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -10,8 +11,10 @@ public sealed class ChunkRenderer : MonoBehaviour
     [SerializeField] private float editDistance = 30f;
     [SerializeField] private byte placeVoxelType = VoxelType.Grass;
 
-    private readonly IMeshBuilder meshBuilder = new NaiveMeshBuilder();
+    private IMeshBuilder meshBuilder = new NaiveMeshBuilder();
     private IChunkDataStore chunkData;
+    private ChunkNeighborhood neighborhood;
+    private Action<LocalPos> voxelEdited;
     private Mesh generatedMesh;
 
     [ContextMenu("Reset Demo Chunk")]
@@ -19,13 +22,42 @@ public sealed class ChunkRenderer : MonoBehaviour
     {
         chunkData = new ChunkData();
         FillHardcodedChunk(chunkData);
+        neighborhood = new ChunkNeighborhood(chunkData, null, null, null, null, null, null);
+        voxelEdited = null;
         RebuildMesh();
         EnsureMaterial();
     }
 
-    private void Awake()
+    public void Initialize(
+        ChunkNeighborhood chunkNeighborhood,
+        IMeshBuilder builder,
+        Camera camera,
+        Material sharedMaterial,
+        Texture2D atlas,
+        byte voxelTypeToPlace,
+        float maxEditDistance,
+        Action<LocalPos> onVoxelEdited = null)
     {
-        ResetDemoChunk();
+        neighborhood = chunkNeighborhood;
+        chunkData = chunkNeighborhood.Center;
+        meshBuilder = builder ?? new NaiveMeshBuilder();
+        editCamera = camera;
+        material = sharedMaterial;
+        voxelAtlas = atlas;
+        placeVoxelType = voxelTypeToPlace;
+        editDistance = Mathf.Max(0.1f, maxEditDistance);
+        voxelEdited = onVoxelEdited;
+
+        RebuildMesh();
+        EnsureMaterial();
+    }
+
+    private void Start()
+    {
+        if (chunkData == null)
+        {
+            ResetDemoChunk();
+        }
     }
 
     private void Update()
@@ -116,14 +148,14 @@ public sealed class ChunkRenderer : MonoBehaviour
         }
     }
 
-    private void RebuildMesh()
+    public void RebuildMesh()
     {
         if (chunkData == null)
         {
             return;
         }
 
-        ChunkMeshData meshData = meshBuilder.Build(chunkData);
+        ChunkMeshData meshData = meshBuilder.Build(neighborhood);
 
         if (generatedMesh == null)
         {
@@ -269,6 +301,7 @@ public sealed class ChunkRenderer : MonoBehaviour
         // 지금은 가장 단순하게 전체 메시를 다시 만듭니다.
         // voxel 하나만 바꿔도 전체 청크 메시와 collider를 다시 만드는 비용이 발생합니다.
         RebuildMesh();
+        voxelEdited?.Invoke(localPos);
     }
 
     private bool TryGetVoxelCoordinateFromHit(RaycastHit hit, bool place, out LocalPos localPos)

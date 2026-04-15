@@ -1,4 +1,4 @@
 public interface IMeshBuilder
 {
-    ChunkMeshData Build(IChunkDataStore chunkData);
+    ChunkMeshData Build(ChunkNeighborhood neighborhood);
 }

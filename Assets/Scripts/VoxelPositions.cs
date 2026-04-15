@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-public readonly struct WorldPos
+public readonly struct WorldPos : IEquatable<WorldPos>
 {
     public readonly int X;
     public readonly int Y;
@@ -42,6 +42,21 @@ public readonly struct WorldPos
             FloorMod(Z, chunkSize));
     }
 
+    public bool Equals(WorldPos other)
+    {
+        return X == other.X && Y == other.Y && Z == other.Z;
+    }
+
+    public override bool Equals(object obj)
+    {
+        return obj is WorldPos other && Equals(other);
+    }
+
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(X, Y, Z);
+    }
+
     private static int FloorDiv(int value, int divisor)
     {
         int quotient = value / divisor;
@@ -66,7 +81,7 @@ public readonly struct WorldPos
     }
 }
 
-public readonly struct ChunkPos
+public readonly struct ChunkPos : IEquatable<ChunkPos>
 {
     public readonly int X;
     public readonly int Y;
@@ -78,9 +93,29 @@ public readonly struct ChunkPos
         Y = y;
         Z = z;
     }
+
+    public Vector3 ToWorldOrigin(int chunkSize)
+    {
+        return new Vector3(X * chunkSize, Y * chunkSize, Z * chunkSize);
+    }
+
+    public bool Equals(ChunkPos other)
+    {
+        return X == other.X && Y == other.Y && Z == other.Z;
+    }
+
+    public override bool Equals(object obj)
+    {
+        return obj is ChunkPos other && Equals(other);
+    }
+
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(X, Y, Z);
+    }
 }
 
-public readonly struct LocalPos
+public readonly struct LocalPos : IEquatable<LocalPos>
 {
     public readonly int X;
     public readonly int Y;
@@ -99,5 +134,20 @@ public readonly struct LocalPos
             Mathf.FloorToInt(value.x),
             Mathf.FloorToInt(value.y),
             Mathf.FloorToInt(value.z));
+    }
+
+    public bool Equals(LocalPos other)
+    {
+        return X == other.X && Y == other.Y && Z == other.Z;
+    }
+
+    public override bool Equals(object obj)
+    {
+        return obj is LocalPos other && Equals(other);
+    }
+
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(X, Y, Z);
     }
 }

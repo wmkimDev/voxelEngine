@@ -43,9 +43,10 @@ public sealed class NaiveMeshBuilder : IMeshBuilder
         new Vector2(1, 0),
     };
 
-    public ChunkMeshData Build(IChunkDataStore chunkData)
+    public ChunkMeshData Build(ChunkNeighborhood neighborhood)
     {
         var meshData = new ChunkMeshData();
+        IChunkDataStore chunkData = neighborhood.Center;
 
         for (int z = 0; z < chunkData.Size; z++)
         {
@@ -65,19 +66,20 @@ public sealed class NaiveMeshBuilder : IMeshBuilder
                     for (int face = 0; face < FaceNormals.Length; face++)
                     {
                         // 현재 면 방향으로 이웃 voxel을 검사합니다.
-                        // 이웃도 Air가 아닌 voxel이면 그 사이의 면은 보이지 않으므로 만들지 않습니다.
+                        // 이 좌표가 청크 밖이면 ChunkNeighborhood가 자동으로 이웃 청크 좌표로 바꿔줍니다.
                         Vector3 normal = FaceNormals[face];
                         var neighborPos = new LocalPos(
                             x + (int)normal.x,
                             y + (int)normal.y,
                             z + (int)normal.z);
 
-                        if (chunkData.GetVoxel(neighborPos) != VoxelType.Air)
+                        if (neighborhood.GetVoxel(neighborPos) != VoxelType.Air)
                         {
                             continue;
                         }
 
-                        // 이웃이 공기이거나 청크 밖이면 이 면은 외부에 노출됩니다.
+                        // 이웃 청크까지 확인한 뒤에도 공기라면 이 면은 외부에 노출됩니다.
+                        // 즉, 청크 경계에 붙어 있는 두 Solid voxel 사이에는 더 이상 불필요한 면을 만들지 않습니다.
                         AddFace(face, voxelType, voxelLocalPosition, meshData);
                     }
                 }
