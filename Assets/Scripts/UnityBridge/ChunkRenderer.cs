@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -16,6 +17,9 @@ public sealed class ChunkRenderer : MonoBehaviour
     private ChunkNeighborhood neighborhood;
     private Action<LocalPos> voxelEdited;
     private Mesh generatedMesh;
+    private readonly List<Vector3> unityVertices = new();
+    private readonly List<Vector3> unityNormals = new();
+    private readonly List<Vector2> unityUvs = new();
 
     [ContextMenu("Reset Demo Chunk")]
     private void ResetDemoChunk()
@@ -179,10 +183,12 @@ public sealed class ChunkRenderer : MonoBehaviour
             ? UnityEngine.Rendering.IndexFormat.UInt32
             : UnityEngine.Rendering.IndexFormat.UInt16;
 
-        generatedMesh.SetVertices(meshData.Vertices);
+        ConvertMeshData(meshData);
+
+        generatedMesh.SetVertices(unityVertices);
         generatedMesh.SetTriangles(meshData.Triangles, 0);
-        generatedMesh.SetNormals(meshData.Normals);
-        generatedMesh.SetUVs(0, meshData.Uvs);
+        generatedMesh.SetNormals(unityNormals);
+        generatedMesh.SetUVs(0, unityUvs);
         generatedMesh.RecalculateBounds();
 
         GetComponent<MeshFilter>().sharedMesh = generatedMesh;
@@ -197,6 +203,30 @@ public sealed class ChunkRenderer : MonoBehaviour
 
         meshCollider.sharedMesh = null;
         meshCollider.sharedMesh = generatedMesh;
+    }
+
+    private void ConvertMeshData(ChunkMeshData meshData)
+    {
+        unityVertices.Clear();
+        unityNormals.Clear();
+        unityUvs.Clear();
+
+        // Core의 메시 데이터는 Unity를 모르는 Vec2/Vec3입니다.
+        // UnityBridge에서만 UnityEngine.Vector2/Vector3로 바꿔 Mesh API에 넘깁니다.
+        foreach (Vec3 vertex in meshData.Vertices)
+        {
+            unityVertices.Add(new Vector3(vertex.X, vertex.Y, vertex.Z));
+        }
+
+        foreach (Vec3 normal in meshData.Normals)
+        {
+            unityNormals.Add(new Vector3(normal.X, normal.Y, normal.Z));
+        }
+
+        foreach (Vec2 uv in meshData.Uvs)
+        {
+            unityUvs.Add(new Vector2(uv.X, uv.Y));
+        }
     }
 
     private void EnsureMaterial()
@@ -320,7 +350,7 @@ public sealed class ChunkRenderer : MonoBehaviour
         // 월드 좌표를 이 청크 오브젝트 기준 로컬 좌표로 바꿉니다.
         // 지금은 청크 원점이 voxel (0,0,0)의 시작점이라고 보고 floor로 voxel 인덱스를 구합니다.
         Vector3 localPoint = transform.InverseTransformPoint(worldPoint);
-        localPos = LocalPos.FromVector3Floor(localPoint);
+        localPos = LocalPos.FromFloatsFloor(localPoint.x, localPoint.y, localPoint.z);
 
         return chunkData != null && chunkData.IsInsideChunk(localPos);
     }

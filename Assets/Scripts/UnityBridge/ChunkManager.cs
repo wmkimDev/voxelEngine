@@ -109,7 +109,8 @@ public sealed class ChunkManager : MonoBehaviour
     {
         var chunkObject = new GameObject($"Chunk ({chunkPos.X}, {chunkPos.Y}, {chunkPos.Z})");
         chunkObject.transform.SetParent(transform, worldPositionStays: false);
-        chunkObject.transform.localPosition = chunkPos.ToWorldOrigin(neighborhood.Size);
+        WorldPos chunkOrigin = chunkPos.ToWorldOrigin(neighborhood.Size);
+        chunkObject.transform.localPosition = new Vector3(chunkOrigin.X, chunkOrigin.Y, chunkOrigin.Z);
 
         ChunkRenderer renderer = chunkObject.AddComponent<ChunkRenderer>();
         renderer.Initialize(
@@ -131,7 +132,8 @@ public sealed class ChunkManager : MonoBehaviour
 
         // 월드 좌표를 바로 청크 좌표로 바꿉니다.
         // 음수 좌표에서도 올바르게 동작해야 하므로 WorldPos 내부의 floor div/floor mod 규칙을 사용합니다.
-        WorldPos worldPos = WorldPos.FromVector3Floor(target.position);
+        Vector3 targetPosition = target.position;
+        WorldPos worldPos = WorldPos.FromFloatsFloor(targetPosition.x, targetPosition.y, targetPosition.z);
         return worldPos.ToChunkPos(ChunkData.DefaultSize);
     }
 

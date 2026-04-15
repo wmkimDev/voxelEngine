@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using UnityEngine;
+using System;
 
 public sealed class SquareStreamingPolicy : IChunkStreamingPolicy
 {
@@ -11,9 +11,9 @@ public sealed class SquareStreamingPolicy : IChunkStreamingPolicy
 
     public SquareStreamingPolicy(int horizontalRadius, int minLayerY, int maxLayerY)
     {
-        this.horizontalRadius = Mathf.Max(0, horizontalRadius);
-        this.minLayerY = Mathf.Min(minLayerY, maxLayerY);
-        this.maxLayerY = Mathf.Max(minLayerY, maxLayerY);
+        this.horizontalRadius = Math.Max(0, horizontalRadius);
+        this.minLayerY = Math.Min(minLayerY, maxLayerY);
+        this.maxLayerY = Math.Max(minLayerY, maxLayerY);
     }
 
     public IReadOnlyCollection<ChunkPos> GetRequiredChunks(ChunkPos centerChunk)

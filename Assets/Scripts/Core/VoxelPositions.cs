@@ -1,5 +1,4 @@
 using System;
-using UnityEngine;
 
 public readonly struct WorldPos : IEquatable<WorldPos>
 {
@@ -14,12 +13,12 @@ public readonly struct WorldPos : IEquatable<WorldPos>
         Z = z;
     }
 
-    public static WorldPos FromVector3Floor(Vector3 value)
+    public static WorldPos FromFloatsFloor(float x, float y, float z)
     {
         return new WorldPos(
-            Mathf.FloorToInt(value.x),
-            Mathf.FloorToInt(value.y),
-            Mathf.FloorToInt(value.z));
+            (int)Math.Floor(x),
+            (int)Math.Floor(y),
+            (int)Math.Floor(z));
     }
 
     public ChunkPos ToChunkPos(int chunkSize)
@@ -94,9 +93,9 @@ public readonly struct ChunkPos : IEquatable<ChunkPos>
         Z = z;
     }
 
-    public Vector3 ToWorldOrigin(int chunkSize)
+    public WorldPos ToWorldOrigin(int chunkSize)
     {
-        return new Vector3(X * chunkSize, Y * chunkSize, Z * chunkSize);
+        return new WorldPos(X * chunkSize, Y * chunkSize, Z * chunkSize);
     }
 
     public bool Equals(ChunkPos other)
@@ -128,12 +127,12 @@ public readonly struct LocalPos : IEquatable<LocalPos>
         Z = z;
     }
 
-    public static LocalPos FromVector3Floor(Vector3 value)
+    public static LocalPos FromFloatsFloor(float x, float y, float z)
     {
         return new LocalPos(
-            Mathf.FloorToInt(value.x),
-            Mathf.FloorToInt(value.y),
-            Mathf.FloorToInt(value.z));
+            (int)Math.Floor(x),
+            (int)Math.Floor(y),
+            (int)Math.Floor(z));
     }
 
     public bool Equals(LocalPos other)

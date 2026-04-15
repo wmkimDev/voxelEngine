@@ -1,4 +1,4 @@
-using UnityEngine;
+using System;
 
 public sealed class NoiseWorldGenerator : IWorldGenerator
 {
@@ -9,9 +9,9 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
     public NoiseWorldGenerator(int seed, float noiseScale, int baseHeight, int heightAmplitude)
     {
         Seed = seed;
-        this.noiseScale = Mathf.Max(0.001f, noiseScale);
-        this.baseHeight = Mathf.Max(0, baseHeight);
-        this.heightAmplitude = Mathf.Max(1, heightAmplitude);
+        this.noiseScale = Math.Max(0.001f, noiseScale);
+        this.baseHeight = Math.Max(0, baseHeight);
+        this.heightAmplitude = Math.Max(1, heightAmplitude);
     }
 
     public int Seed { get; }
@@ -46,12 +46,12 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
         float sampleZ = (worldZ + (Seed * 91.71f)) / noiseScale;
 
         // 첫 번째 노이즈는 큰 언덕, 두 번째 노이즈는 작은 굴곡입니다.
-        // 여러 노이즈를 섞으면 완전히 평평한 Perlin 패턴보다 자연스러운 지형이 됩니다.
-        float broadNoise = Mathf.PerlinNoise(sampleX, sampleZ);
-        float detailNoise = Mathf.PerlinNoise(sampleX * 2.5f + 17.3f, sampleZ * 2.5f + 42.7f);
+        // 엔진 노이즈 함수 대신 순수 C# 값 노이즈를 써서 Core가 독립적으로 컴파일되게 합니다.
+        float broadNoise = ValueNoise(sampleX, sampleZ);
+        float detailNoise = ValueNoise(sampleX * 2.5f + 17.3f, sampleZ * 2.5f + 42.7f);
         float combinedNoise = (broadNoise * 0.75f) + (detailNoise * 0.25f);
 
-        return baseHeight + Mathf.RoundToInt(combinedNoise * heightAmplitude);
+        return baseHeight + (int)Math.Floor((combinedNoise * heightAmplitude) + 0.5f);
     }
 
     private static byte GetVoxelType(int worldY, int surfaceHeight)
@@ -72,5 +72,49 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
         }
 
         return VoxelType.Stone;
+    }
+
+    private float ValueNoise(float x, float z)
+    {
+        int x0 = (int)Math.Floor(x);
+        int z0 = (int)Math.Floor(z);
+        int x1 = x0 + 1;
+        int z1 = z0 + 1;
+
+        float tx = SmoothStep(x - x0);
+        float tz = SmoothStep(z - z0);
+
+        float a = HashNoise(x0, z0);
+        float b = HashNoise(x1, z0);
+        float c = HashNoise(x0, z1);
+        float d = HashNoise(x1, z1);
+
+        float top = Lerp(a, b, tx);
+        float bottom = Lerp(c, d, tx);
+        return Lerp(top, bottom, tz);
+    }
+
+    private float HashNoise(int x, int z)
+    {
+        unchecked
+        {
+            int hash = Seed;
+            hash = (hash * 397) ^ x;
+            hash = (hash * 397) ^ z;
+            hash ^= hash >> 13;
+            hash *= 1274126177;
+            hash ^= hash >> 16;
+            return (hash & 0x7fffffff) / (float)int.MaxValue;
+        }
+    }
+
+    private static float SmoothStep(float value)
+    {
+        return value * value * (3f - (2f * value));
+    }
+
+    private static float Lerp(float a, float b, float t)
+    {
+        return a + ((b - a) * t);
     }
 }

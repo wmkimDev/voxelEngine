@@ -225,6 +225,8 @@ public sealed class VoxelPlayerController : MonoBehaviour
 
     private Vector3 ResolveCameraCollision(Vector3 pivot, Vector3 desiredPosition)
     {
+        // pivot은 카메라가 바라보는 기준점이고, desiredPosition은 충돌이 없을 때의 카메라 위치입니다.
+        // 두 점 사이에 장애물이 있으면 카메라가 벽/지형 뒤로 들어가므로, pivot에서 카메라 방향으로 검사합니다.
         Vector3 toCamera = desiredPosition - pivot;
         float distance = toCamera.magnitude;
         if (distance <= 0.001f)
@@ -232,9 +234,13 @@ public sealed class VoxelPlayerController : MonoBehaviour
             return desiredPosition;
         }
 
+        // SphereCast가 플레이어 자신의 CharacterController에 맞으면 카메라가 항상 몸에 막힌 것으로 판정됩니다.
+        // 그래서 검사하는 짧은 순간만 CharacterController를 꺼서 자기 자신은 무시합니다.
         bool wasEnabled = characterController.enabled;
         characterController.enabled = false;
 
+        // Raycast 대신 SphereCast를 쓰면 카메라를 작은 구처럼 취급합니다.
+        // 얇은 모서리나 벽에 카메라 중심점만 통과해서 화면이 파고드는 문제를 줄이기 위함입니다.
         bool hitObstacle = Physics.SphereCast(
             pivot,
             thirdPersonCameraRadius,
@@ -246,11 +252,14 @@ public sealed class VoxelPlayerController : MonoBehaviour
 
         characterController.enabled = wasEnabled;
 
+        // pivot과 desiredPosition 사이에 아무것도 없으면 원래 원하던 카메라 위치를 그대로 씁니다.
         if (!hitObstacle)
         {
             return desiredPosition;
         }
 
+        // 장애물을 맞았다면, 맞은 지점보다 카메라 반지름만큼 앞쪽에 카메라를 둡니다.
+        // 이렇게 해야 카메라 구가 벽에 겹치지 않고 플레이어 쪽으로 당겨집니다.
         return pivot + ((toCamera / distance) * Mathf.Max(0f, hit.distance - thirdPersonCameraRadius));
     }
 
