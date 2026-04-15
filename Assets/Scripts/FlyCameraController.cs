@@ -7,7 +7,6 @@ public sealed class FlyCameraController : MonoBehaviour
     [SerializeField] private float moveSpeed = 6f;
     [SerializeField] private float fastMoveMultiplier = 3f;
     [SerializeField] private float lookSensitivity = 0.12f;
-    [SerializeField] private bool requireRightMouseButton = true;
 
     private float yaw;
     private float pitch;
@@ -36,21 +35,15 @@ public sealed class FlyCameraController : MonoBehaviour
 
     private void UpdateCursorLock(Mouse mouse)
     {
-        if (!requireRightMouseButton || mouse == null)
+        if (mouse == null)
         {
             return;
         }
 
-        if (mouse.rightButton.wasPressedThisFrame)
+        if (Cursor.lockState != CursorLockMode.Locked)
         {
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
-        }
-
-        if (mouse.rightButton.wasReleasedThisFrame)
-        {
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
         }
     }
 
@@ -61,11 +54,8 @@ public sealed class FlyCameraController : MonoBehaviour
             return;
         }
 
-        if (requireRightMouseButton && !mouse.rightButton.isPressed)
-        {
-            return;
-        }
-
+        // 마우스 움직임 자체가 카메라가 바라보는 방향을 바꿉니다.
+        // 클릭은 voxel 편집에만 사용합니다.
         Vector2 mouseDelta = mouse.delta.ReadValue();
         yaw += mouseDelta.x * lookSensitivity;
         pitch -= mouseDelta.y * lookSensitivity;
