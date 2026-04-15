@@ -53,7 +53,8 @@ public sealed class NaiveMeshBuilder : IMeshBuilder
             {
                 for (int x = 0; x < chunkData.Size; x++)
                 {
-                    byte voxelType = chunkData.GetVoxel(x, y, z);
+                    var localPos = new LocalPos(x, y, z);
+                    byte voxelType = chunkData.GetVoxel(localPos);
                     if (voxelType == VoxelType.Air)
                     {
                         continue;
@@ -66,11 +67,12 @@ public sealed class NaiveMeshBuilder : IMeshBuilder
                         // 현재 면 방향으로 이웃 voxel을 검사합니다.
                         // 이웃도 Air가 아닌 voxel이면 그 사이의 면은 보이지 않으므로 만들지 않습니다.
                         Vector3 normal = FaceNormals[face];
-                        int neighborX = x + (int)normal.x;
-                        int neighborY = y + (int)normal.y;
-                        int neighborZ = z + (int)normal.z;
+                        var neighborPos = new LocalPos(
+                            x + (int)normal.x,
+                            y + (int)normal.y,
+                            z + (int)normal.z);
 
-                        if (chunkData.GetVoxel(neighborX, neighborY, neighborZ) != VoxelType.Air)
+                        if (chunkData.GetVoxel(neighborPos) != VoxelType.Air)
                         {
                             continue;
                         }

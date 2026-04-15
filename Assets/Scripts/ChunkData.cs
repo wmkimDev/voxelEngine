@@ -19,39 +19,39 @@ public sealed class ChunkData : IChunkDataStore
 
     public int Size { get; }
 
-    public byte GetVoxel(int x, int y, int z)
+    public byte GetVoxel(LocalPos pos)
     {
-        if (!IsInsideChunk(x, y, z))
+        if (!IsInsideChunk(pos))
         {
             return VoxelType.Air;
         }
 
-        return voxels[ToIndex(x, y, z)];
+        return voxels[ToIndex(pos)];
     }
 
-    public void SetVoxel(int x, int y, int z, byte value)
+    public void SetVoxel(LocalPos pos, byte value)
     {
-        if (!IsInsideChunk(x, y, z))
+        if (!IsInsideChunk(pos))
         {
             return;
         }
 
-        voxels[ToIndex(x, y, z)] = value;
+        voxels[ToIndex(pos)] = value;
     }
 
-    public bool IsSolid(int x, int y, int z)
+    public bool IsSolid(LocalPos pos)
     {
-        return GetVoxel(x, y, z) != VoxelType.Air;
+        return GetVoxel(pos) != VoxelType.Air;
     }
 
-    public bool IsInsideChunk(int x, int y, int z)
+    public bool IsInsideChunk(LocalPos pos)
     {
-        return x >= 0 && y >= 0 && z >= 0 && x < Size && y < Size && z < Size;
+        return pos.X >= 0 && pos.Y >= 0 && pos.Z >= 0 && pos.X < Size && pos.Y < Size && pos.Z < Size;
     }
 
-    public int ToIndex(int x, int y, int z)
+    public int ToIndex(LocalPos pos)
     {
         // 3차원 좌표를 1차원 배열 인덱스로 변환합니다.
-        return x + (y * Size) + (z * Size * Size);
+        return pos.X + (pos.Y * Size) + (pos.Z * Size * Size);
     }
 }

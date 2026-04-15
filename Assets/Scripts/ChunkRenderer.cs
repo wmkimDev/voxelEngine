@@ -72,7 +72,7 @@ public sealed class ChunkRenderer : MonoBehaviour
             {
                 for (int x = 0; x < data.Size; x++)
                 {
-                    data.SetVoxel(x, y, z, GetVoxelTypeForHeight(y, data.Size));
+                    data.SetVoxel(new LocalPos(x, y, z), GetVoxelTypeForHeight(y, data.Size));
                 }
             }
         }
@@ -85,7 +85,7 @@ public sealed class ChunkRenderer : MonoBehaviour
             {
                 for (int x = 2; x <= 5; x++)
                 {
-                    data.SetVoxel(x, y, z, VoxelType.Air);
+                    data.SetVoxel(new LocalPos(x, y, z), VoxelType.Air);
                 }
             }
         }
@@ -98,7 +98,7 @@ public sealed class ChunkRenderer : MonoBehaviour
             {
                 for (int x = 3; x <= 4; x++)
                 {
-                    data.SetVoxel(x, y, z, VoxelType.Air);
+                    data.SetVoxel(new LocalPos(x, y, z), VoxelType.Air);
                 }
             }
         }
@@ -110,7 +110,7 @@ public sealed class ChunkRenderer : MonoBehaviour
             {
                 for (int x = 0; x <= 2; x++)
                 {
-                    data.SetVoxel(x, y, z, VoxelType.Sand);
+                    data.SetVoxel(new LocalPos(x, y, z), VoxelType.Sand);
                 }
             }
         }
@@ -253,25 +253,25 @@ public sealed class ChunkRenderer : MonoBehaviour
             return;
         }
 
-        if (!TryGetVoxelCoordinateFromHit(hit, place, out int x, out int y, out int z))
+        if (!TryGetVoxelCoordinateFromHit(hit, place, out LocalPos localPos))
         {
             return;
         }
 
         byte nextValue = place ? placeVoxelType : VoxelType.Air;
-        if (chunkData.GetVoxel(x, y, z) == nextValue)
+        if (chunkData.GetVoxel(localPos) == nextValue)
         {
             return;
         }
 
-        chunkData.SetVoxel(x, y, z, nextValue);
+        chunkData.SetVoxel(localPos, nextValue);
 
         // 지금은 가장 단순하게 전체 메시를 다시 만듭니다.
         // voxel 하나만 바꿔도 전체 청크 메시와 collider를 다시 만드는 비용이 발생합니다.
         RebuildMesh();
     }
 
-    private bool TryGetVoxelCoordinateFromHit(RaycastHit hit, bool place, out int x, out int y, out int z)
+    private bool TryGetVoxelCoordinateFromHit(RaycastHit hit, bool place, out LocalPos localPos)
     {
         // Raycast hit.point는 월드 좌표입니다.
         // 파기는 맞은 면의 안쪽 voxel을 골라야 하므로 normal 반대 방향으로 살짝 이동합니다.
@@ -281,11 +281,9 @@ public sealed class ChunkRenderer : MonoBehaviour
         // 월드 좌표를 이 청크 오브젝트 기준 로컬 좌표로 바꿉니다.
         // 지금은 청크 원점이 voxel (0,0,0)의 시작점이라고 보고 floor로 voxel 인덱스를 구합니다.
         Vector3 localPoint = transform.InverseTransformPoint(worldPoint);
-        x = Mathf.FloorToInt(localPoint.x);
-        y = Mathf.FloorToInt(localPoint.y);
-        z = Mathf.FloorToInt(localPoint.z);
+        localPos = LocalPos.FromVector3Floor(localPoint);
 
-        return chunkData != null && chunkData.IsInsideChunk(x, y, z);
+        return chunkData != null && chunkData.IsInsideChunk(localPos);
     }
 
     private static byte GetVoxelTypeForHeight(int y, int chunkSize)
