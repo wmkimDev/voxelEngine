@@ -32,7 +32,14 @@ public sealed class NaiveMeshBuilder : IMeshBuilder
         new Vec2(1, 0),
     };
 
-    public ChunkMeshData Build(ChunkNeighborhood neighborhood)
+    public IMeshBuildHandle Schedule(ChunkNeighborhood neighborhood)
+    {
+        // Naive 구현은 아직 별도 스레드를 쓰지 않습니다.
+        // 대신 Job 기반 구현과 같은 계약을 맞추기 위해 즉시 계산한 결과를 완료된 handle로 감쌉니다.
+        return new CompletedMeshBuildHandle(BuildNow(neighborhood));
+    }
+
+    private static ChunkMeshData BuildNow(ChunkNeighborhood neighborhood)
     {
         var meshData = new ChunkMeshData();
         IChunkDataStore chunkData = neighborhood.Center;
@@ -129,5 +136,22 @@ public sealed class NaiveMeshBuilder : IMeshBuilder
     private static float Lerp(float a, float b, float t)
     {
         return a + ((b - a) * t);
+    }
+
+    private sealed class CompletedMeshBuildHandle : IMeshBuildHandle
+    {
+        private readonly ChunkMeshData meshData;
+
+        public CompletedMeshBuildHandle(ChunkMeshData meshData)
+        {
+            this.meshData = meshData;
+        }
+
+        public bool IsCompleted => true;
+
+        public ChunkMeshData Complete()
+        {
+            return meshData;
+        }
     }
 }

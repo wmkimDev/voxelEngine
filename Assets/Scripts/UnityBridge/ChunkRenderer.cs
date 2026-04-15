@@ -165,7 +165,10 @@ public sealed class ChunkRenderer : MonoBehaviour
             return;
         }
 
-        ChunkMeshData meshData = meshBuilder.Build(neighborhood);
+        // 지금 NaiveMeshBuilder는 Schedule 안에서 즉시 계산하고 완료된 handle을 돌려줍니다.
+        // 나중에 JobSystemMeshBuilder를 꽂으면 Schedule은 JobHandle을 반환하고, Complete에서 결과를 수집합니다.
+        IMeshBuildHandle meshBuildHandle = meshBuilder.Schedule(neighborhood);
+        ChunkMeshData meshData = meshBuildHandle.Complete();
 
         if (generatedMesh == null)
         {

@@ -1,4 +1,11 @@
 public interface IMeshBuilder
 {
-    ChunkMeshData Build(ChunkNeighborhood neighborhood);
+    IMeshBuildHandle Schedule(ChunkNeighborhood neighborhood);
+}
+
+public interface IMeshBuildHandle
+{
+    bool IsCompleted { get; }
+
+    ChunkMeshData Complete();
 }
