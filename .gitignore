@@ -73,6 +73,11 @@ mono_crash.*
 *.unitypackage.meta
 *.app
 
+# Markdown docs except README files
+*.md
+![Rr][Ee][Aa][Dd][Mm][Ee].md
+!**/[Rr][Ee][Aa][Dd][Mm][Ee].md
+
 # Crashlytics generated file
 crashlytics-build.properties
 
