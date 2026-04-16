@@ -24,7 +24,8 @@ public sealed class ChunkManager : MonoBehaviour
     private IMeshBuilder meshBuilder;
     private readonly ChunkLoadScheduler loadScheduler = new();
     private IWorldGenerator worldGenerator;
-    private IChunkStreamingPolicy streamingPolicy;
+    private IChunkStreamingPolicy loadStreamingPolicy;
+    private IChunkStreamingPolicy unloadStreamingPolicy;
     private ChunkPos? currentCenterChunk;
     private int lastChunkLoadsPerformed;
 
@@ -81,9 +82,15 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void RebuildStreamingPolicy()
     {
-        streamingPolicy = worldSettings.ActiveStreamingMode == VoxelWorldSettings.StreamingMode.Radial
-            ? new RadialStreamingPolicy(worldSettings.ViewDistanceInChunks, worldSettings.MinLayerY, worldSettings.MaxLayerY)
-            : new SquareStreamingPolicy(worldSettings.ViewDistanceInChunks, worldSettings.MinLayerY, worldSettings.MaxLayerY);
+        loadStreamingPolicy = CreateStreamingPolicy(worldSettings.ViewDistanceInChunks);
+        unloadStreamingPolicy = CreateStreamingPolicy(worldSettings.UnloadDistanceInChunks);
+    }
+
+    private IChunkStreamingPolicy CreateStreamingPolicy(int horizontalRadius)
+    {
+        return worldSettings.ActiveStreamingMode == VoxelWorldSettings.StreamingMode.Radial
+            ? new RadialStreamingPolicy(horizontalRadius, worldSettings.MinLayerY, worldSettings.MaxLayerY)
+            : new SquareStreamingPolicy(horizontalRadius, worldSettings.MinLayerY, worldSettings.MaxLayerY);
     }
 
     private IMeshBuilder CreateMeshBuilder()
@@ -131,13 +138,14 @@ public sealed class ChunkManager : MonoBehaviour
             worldGenerator = CreateWorldGenerator();
         }
 
-        if (streamingPolicy == null)
+        if (loadStreamingPolicy == null || unloadStreamingPolicy == null)
         {
             RebuildStreamingPolicy();
         }
 
         ChunkPos targetChunk = GetStreamingCenterChunk();
-        IReadOnlyCollection<ChunkPos> requiredChunks = streamingPolicy.GetRequiredChunks(targetChunk);
+        IReadOnlyCollection<ChunkPos> requiredChunks = loadStreamingPolicy.GetRequiredChunks(targetChunk);
+        IReadOnlyCollection<ChunkPos> unloadProtectedChunks = unloadStreamingPolicy.GetRequiredChunks(targetChunk);
 
         // 필요한 청크가 9개여도 한 프레임에는 maxChunkLoadsPerFrame개만 만듭니다.
         // 그래서 플레이어가 같은 청크에 머물러 있어도, 아직 못 만든 청크가 있으면
@@ -154,12 +162,12 @@ public sealed class ChunkManager : MonoBehaviour
 
         currentCenterChunk = targetChunk;
 
-        // requiredChunks는 "지금 월드에 있어야 하는 청크 목록"입니다.
-        // 목록에서 빠진 기존 청크는 삭제하고, 목록에 있는데 아직 없는 청크는 새로 만듭니다.
-        // 마지막에는 "이번 변화로 메시를 다시 계산해야 하는 청크"만 골라 재빌드합니다.
+        // requiredChunks는 "지금 새로 로드해야 하는 청크 목록"이고,
+        // unloadProtectedChunks는 "아직 유지해도 되는 청크 목록"입니다.
+        // 이렇게 로드 반경과 언로드 반경을 분리해 경계에서 생겼다 사라지는 떨림을 줄입니다.
         var chunksNeedingRebuild = new HashSet<ChunkPos>();
-        CollectChunksNeedingRebuildForUnload(requiredChunks, chunksNeedingRebuild);
-        UnloadMissingChunks(requiredChunks);
+        CollectChunksNeedingRebuildForUnload(unloadProtectedChunks, chunksNeedingRebuild);
+        UnloadMissingChunks(unloadProtectedChunks);
         LoadRequiredChunks(requiredChunks, targetChunk, chunksNeedingRebuild);
         RebuildChunksNeedingMesh(chunksNeedingRebuild);
     }
@@ -277,10 +285,12 @@ public sealed class ChunkManager : MonoBehaviour
         }
 
         HashSet<ChunkPos> visibleChunkPositions = GetVisibleChunkPositions(chunksToLoad);
+        Dictionary<ChunkPos, float> screenPriorityScores = GetScreenPriorityScores(chunksToLoad);
         List<ChunkPos> sortedChunks = loadScheduler.SortByVisibilityAndDistance(
             chunksToLoad,
             centerChunk,
-            visibleChunkPositions);
+            visibleChunkPositions,
+            screenPriorityScores);
         int maxChunkLoadsPerFrame = worldSettings.MaxChunkLoadsPerFrame;
         int loadCount = Mathf.Min(maxChunkLoadsPerFrame, sortedChunks.Count);
         lastChunkLoadsPerformed = loadCount;
@@ -334,6 +344,43 @@ public sealed class ChunkManager : MonoBehaviour
         }
 
         return visibleChunks;
+    }
+
+    private Dictionary<ChunkPos, float> GetScreenPriorityScores(IReadOnlyCollection<ChunkPos> chunkPositions)
+    {
+        Camera cameraToUse = editCamera != null ? editCamera : Camera.main;
+        if (cameraToUse == null || chunkPositions.Count == 0)
+        {
+            return null;
+        }
+
+        var screenScores = new Dictionary<ChunkPos, float>(chunkPositions.Count);
+        int chunkSize = ChunkData.DefaultSize;
+
+        foreach (ChunkPos chunkPos in chunkPositions)
+        {
+            // 월드 좌표를 화면 좌표로 바꿔, 현재 화면 중심(0.5, 0.5)에 더 가까운 청크일수록
+            // 더 먼저 로드되게 점수를 줍니다. 회전했을 때 화면 가장자리부터 스윕되듯
+            // 생성되는 느낌보다, 시야 중심부터 채워지는 느낌을 우선합니다.
+            WorldPos origin = chunkPos.ToWorldOrigin(chunkSize);
+            Vector3 chunkCenter = new Vector3(
+                origin.X + (chunkSize * 0.5f),
+                origin.Y + (chunkSize * 0.5f),
+                origin.Z + (chunkSize * 0.5f));
+            Vector3 viewportPoint = cameraToUse.WorldToViewportPoint(chunkCenter);
+
+            if (viewportPoint.z <= 0f)
+            {
+                screenScores[chunkPos] = float.NegativeInfinity;
+                continue;
+            }
+
+            float dx = viewportPoint.x - 0.5f;
+            float dy = viewportPoint.y - 0.5f;
+            screenScores[chunkPos] = -((dx * dx) + (dy * dy));
+        }
+
+        return screenScores;
     }
 
     private void CollectChunksNeedingRebuildForUnload(
