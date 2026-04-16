@@ -21,6 +21,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
     [SerializeField] private StreamingMode streamingMode = StreamingMode.Radial;
     [SerializeField] private int viewDistanceInChunks = 2;
     [SerializeField] private int unloadDistanceInChunks = 3;
+    [SerializeField] private int colliderDistanceInChunks = 2;
     [SerializeField] private int minLayerY = 0;
     [SerializeField] private int maxLayerY = 0;
     [SerializeField] private int maxChunkLoadsPerFrame = 4;
@@ -49,6 +50,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
     public StreamingMode ActiveStreamingMode => streamingMode;
     public int ViewDistanceInChunks => viewDistanceInChunks;
     public int UnloadDistanceInChunks => unloadDistanceInChunks;
+    public int ColliderDistanceInChunks => colliderDistanceInChunks;
     public int MinLayerY => minLayerY;
     public int MaxLayerY => maxLayerY;
     public int MaxChunkLoadsPerFrame => maxChunkLoadsPerFrame;
@@ -87,6 +89,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
     {
         viewDistanceInChunks = Mathf.Max(0, viewDistanceInChunks);
         unloadDistanceInChunks = Mathf.Max(viewDistanceInChunks, unloadDistanceInChunks);
+        colliderDistanceInChunks = Mathf.Clamp(colliderDistanceInChunks, 0, unloadDistanceInChunks);
         maxLayerY = Mathf.Max(minLayerY, maxLayerY);
         maxChunkLoadsPerFrame = Mathf.Max(1, maxChunkLoadsPerFrame);
         editDistance = Mathf.Max(0.1f, editDistance);

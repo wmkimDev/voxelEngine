@@ -11,6 +11,8 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
     private readonly List<Vector3> unityVertices = new();
     private readonly List<Vector3> unityNormals = new();
     private readonly List<Vector2> unityUvs = new();
+    private bool shouldUseCollider = true;
+    private bool hasRenderableMesh;
 
     public void Initialize(Material sharedMaterial, Texture2D atlas)
     {
@@ -51,7 +53,8 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
             // 그런 전환 상황에서는 남아 있는 MeshCollider를 여기서 제거해 줘야 합니다.
             meshFilter.sharedMesh = null;
             meshRenderer.enabled = false;
-            RemoveMeshCollider(meshCollider);
+            hasRenderableMesh = false;
+            DestroyMeshCollider(meshCollider);
             VoxelPerformanceStats.RecordMeshRebuild(rebuildMilliseconds, meshData);
             return;
         }
@@ -64,15 +67,17 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
 
         meshFilter.sharedMesh = generatedMesh;
         meshRenderer.enabled = true;
+        hasRenderableMesh = true;
 
-        // 실제 지형 면이 있는 청크만 collider를 가집니다.
-        // 비어 있던 청크가 새로 지형을 갖게 된 경우에만 여기서 MeshCollider를 만들거나 재사용합니다.
-        // Raycast 편집이 같은 형상의 collider를 읽도록 렌더 메시와 같은 데이터를 collider에도 넣습니다.
-        meshCollider = GetOrCreateMeshCollider();
-        meshCollider.sharedMesh = null;
-        meshCollider.sharedMesh = generatedMesh;
+        RefreshColliderState(meshCollider);
 
         VoxelPerformanceStats.RecordMeshRebuild(rebuildMilliseconds, meshData);
+    }
+
+    public void SetColliderUsage(bool shouldEnableCollider)
+    {
+        shouldUseCollider = shouldEnableCollider;
+        RefreshColliderState(GetComponent<MeshCollider>());
     }
 
     public void EnsureMaterial()
@@ -170,11 +175,45 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
             meshCollider = gameObject.AddComponent<MeshCollider>();
         }
 
-        meshCollider.enabled = true;
         return meshCollider;
     }
 
-    private void RemoveMeshCollider(MeshCollider meshCollider)
+    private void RefreshColliderState(MeshCollider meshCollider)
+    {
+        if (!hasRenderableMesh || generatedMesh == null)
+        {
+            DestroyMeshCollider(meshCollider);
+            return;
+        }
+
+        if (!shouldUseCollider)
+        {
+            // 이미 생성된 지형 청크는 거리 정책에 따라 collider를 껐다 켭니다.
+            // 이렇게 하면 먼 청크에서 PhysX 비용은 줄이면서도, 가까워졌을 때 매번 컴포넌트를 다시
+            // 생성/제거하는 부담은 피할 수 있습니다.
+            DisableMeshCollider(meshCollider);
+            return;
+        }
+
+        // 실제 지형 면이 있고, 현재 청크가 "충돌을 유지할 만큼 가까운 범위"에 있을 때만
+        // MeshCollider를 붙입니다. 이렇게 하면 먼 청크는 렌더만 남기고 PhysX 갱신 비용을 줄일 수 있습니다.
+        meshCollider = GetOrCreateMeshCollider();
+        meshCollider.sharedMesh = null;
+        meshCollider.sharedMesh = generatedMesh;
+        meshCollider.enabled = true;
+    }
+
+    private void DisableMeshCollider(MeshCollider meshCollider)
+    {
+        if (meshCollider == null)
+        {
+            return;
+        }
+
+        meshCollider.enabled = false;
+    }
+
+    private void DestroyMeshCollider(MeshCollider meshCollider)
     {
         if (meshCollider == null)
         {

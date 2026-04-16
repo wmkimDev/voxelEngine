@@ -112,6 +112,11 @@ public sealed class ChunkMeshController : MonoBehaviour
         ScheduleMeshBuild();
     }
 
+    public void SetColliderUsage(bool shouldEnableCollider)
+    {
+        GetMeshPresenter().SetColliderUsage(shouldEnableCollider);
+    }
+
     private void ScheduleMeshBuild()
     {
         meshBuildState.Stopwatch.Restart();
