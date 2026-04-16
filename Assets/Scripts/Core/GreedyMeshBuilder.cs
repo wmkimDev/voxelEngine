@@ -27,13 +27,13 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
         // axis와 positive를 따로 들고 다니면 호출부가 길어지므로 하나로 묶어둡니다.
         public readonly Axis Axis;
         public readonly bool Positive;
-        public readonly int FaceIndex;
+        public readonly FaceDirection Direction;
 
-        public FaceOrientation(Axis axis, bool positive, int faceIndex)
+        public FaceOrientation(Axis axis, bool positive, FaceDirection direction)
         {
             Axis = axis;
             Positive = positive;
-            FaceIndex = faceIndex;
+            Direction = direction;
         }
     }
 
@@ -58,25 +58,13 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
     private static readonly FaceOrientation[] FaceOrientations =
     {
         // +X, -X, +Y, -Y, +Z, -Z 순서로 한 번씩 처리합니다.
-        // faceIndex는 아래 QuadCornerOrder와 같은 순서를 공유합니다.
-        new FaceOrientation(Axis.X, positive: true, faceIndex: 0),
-        new FaceOrientation(Axis.X, positive: false, faceIndex: 1),
-        new FaceOrientation(Axis.Y, positive: true, faceIndex: 2),
-        new FaceOrientation(Axis.Y, positive: false, faceIndex: 3),
-        new FaceOrientation(Axis.Z, positive: true, faceIndex: 4),
-        new FaceOrientation(Axis.Z, positive: false, faceIndex: 5),
-    };
-
-    // p0 / pU / pV / pUV 네 꼭짓점을 어떤 순서로 넣어야
-    // 각 방향의 법선과 삼각형 winding이 NaiveMeshBuilder와 일치하는지 정의합니다.
-    private static readonly int[,] QuadCornerOrder =
-    {
-        { 0, 1, 3, 2 }, // +X
-        { 2, 3, 1, 0 }, // -X
-        { 2, 3, 1, 0 }, // +Y
-        { 0, 1, 3, 2 }, // -Y
-        { 1, 3, 2, 0 }, // +Z
-        { 0, 2, 3, 1 }, // -Z
+        // Direction은 FaceTopology의 공용 winding/normal 규칙과 직접 연결됩니다.
+        new FaceOrientation(Axis.X, positive: true, FaceDirection.PositiveX),
+        new FaceOrientation(Axis.X, positive: false, FaceDirection.NegativeX),
+        new FaceOrientation(Axis.Y, positive: true, FaceDirection.PositiveY),
+        new FaceOrientation(Axis.Y, positive: false, FaceDirection.NegativeY),
+        new FaceOrientation(Axis.Z, positive: true, FaceDirection.PositiveZ),
+        new FaceOrientation(Axis.Z, positive: false, FaceDirection.NegativeZ),
     };
 
     public IMeshBuildHandle Schedule(ChunkNeighborhood neighborhood)
@@ -256,19 +244,19 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
         Vec3 origin = GetFaceOrigin(face, layer, rect.StartU, rect.StartV);
         Vec3 uVector = GetUVector(face.Axis, rect.Width);
         Vec3 vVector = GetVVector(face.Axis, rect.Height);
-        Vec3 normal = GetNormal(face.Axis, face.Positive);
+        Vec3 normal = FaceTopology.GetNormal(face.Direction);
 
         Vec3 p0 = origin;
         Vec3 pU = origin + uVector;
         Vec3 pV = origin + vVector;
         Vec3 pUV = origin + uVector + vVector;
 
-        WriteFaceWithCorrectWinding(meshData, face.FaceIndex, voxelType, normal, p0, pU, pV, pUV);
+        WriteFaceWithCorrectWinding(meshData, face.Direction, voxelType, normal, p0, pU, pV, pUV);
     }
 
     private static void WriteFaceWithCorrectWinding(
         ChunkMeshData meshData,
-        int faceIndex,
+        FaceDirection direction,
         byte voxelType,
         Vec3 normal,
         Vec3 p0,
@@ -276,16 +264,16 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
         Vec3 pV,
         Vec3 pUV)
     {
-        // faceIndex는 +X, -X, +Y, -Y, +Z, -Z 순서입니다.
-        // 이 방향별 정점 순서를 맞춰야 삼각형 winding이 법선 방향과 일치합니다.
+        // winding 규칙은 FaceTopology의 공용 정의를 사용합니다.
+        // 즉 Greedy 전용 규칙이 아니라 엔진 전체가 공유하는 방향 규칙입니다.
         QuadMeshWriter.Write(
             meshData,
             voxelType,
             normal,
-            GetCorner(QuadCornerOrder[faceIndex, 0], p0, pU, pV, pUV),
-            GetCorner(QuadCornerOrder[faceIndex, 1], p0, pU, pV, pUV),
-            GetCorner(QuadCornerOrder[faceIndex, 2], p0, pU, pV, pUV),
-            GetCorner(QuadCornerOrder[faceIndex, 3], p0, pU, pV, pUV));
+            GetCorner(FaceTopology.GetWindingCornerIndex(direction, 0), p0, pU, pV, pUV),
+            GetCorner(FaceTopology.GetWindingCornerIndex(direction, 1), p0, pU, pV, pUV),
+            GetCorner(FaceTopology.GetWindingCornerIndex(direction, 2), p0, pU, pV, pUV),
+            GetCorner(FaceTopology.GetWindingCornerIndex(direction, 3), p0, pU, pV, pUV));
     }
 
     private static Vec3 GetCorner(int index, Vec3 p0, Vec3 pU, Vec3 pV, Vec3 pUV)
@@ -361,20 +349,6 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
             Axis.X => new Vec3(0, 0, height),
             Axis.Y => new Vec3(0, 0, height),
             _ => new Vec3(0, height, 0)
-        };
-    }
-
-    private static Vec3 GetNormal(Axis axis, bool positive)
-    {
-        // 이 쿼드가 어느 방향을 바라보는지 나타내는 법선 벡터입니다.
-        // 조명 계산과 winding 검증에서 사용됩니다.
-        int sign = positive ? 1 : -1;
-
-        return axis switch
-        {
-            Axis.X => new Vec3(sign, 0, 0),
-            Axis.Y => new Vec3(0, sign, 0),
-            _ => new Vec3(0, 0, sign)
         };
     }
 

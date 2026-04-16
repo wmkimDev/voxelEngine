@@ -3,7 +3,9 @@
     "rootNamespace": "",
     "references": [
         "VoxelEngine.Core",
-        "Unity.InputSystem"
+        "Unity.InputSystem",
+        "Unity.ugui",
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

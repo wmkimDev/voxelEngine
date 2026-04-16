@@ -32,9 +32,15 @@ public sealed class ChunkManager : MonoBehaviour
     private IWorldGenerator worldGenerator;
     private IChunkStreamingPolicy streamingPolicy;
     private ChunkPos? currentCenterChunk;
+    private int lastChunkLoadsPerformed;
+
+    public int LoadedChunkCount => chunks.Count;
+    public int LastChunkLoadsPerformed => lastChunkLoadsPerformed;
+    public string ActiveMeshBuilderName => meshBuilderMode.ToString();
 
     private void Start()
     {
+        VoxelPerformanceStats.Reset();
         meshBuilder = CreateMeshBuilder();
         worldGenerator = new NoiseWorldGenerator(seed, noiseScale, baseHeight, heightAmplitude);
         RebuildStreamingPolicy();
@@ -85,6 +91,8 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void UpdateStreaming(bool force)
     {
+        lastChunkLoadsPerformed = 0;
+
         if (worldGenerator == null)
         {
             worldGenerator = new NoiseWorldGenerator(seed, noiseScale, baseHeight, heightAmplitude);
@@ -206,6 +214,8 @@ public sealed class ChunkManager : MonoBehaviour
 
         List<ChunkPos> sortedChunks = loadScheduler.SortByDistance(chunksToLoad, centerChunk);
         int loadCount = Mathf.Min(maxChunkLoadsPerFrame, sortedChunks.Count);
+        lastChunkLoadsPerformed = loadCount;
+
         for (int i = 0; i < loadCount; i++)
         {
             // 이번 단계에서는 생성과 메시 빌드를 모두 메인 스레드에서 처리합니다.

@@ -43,6 +43,31 @@ public sealed class MeshBuilderPerformanceTests
     }
 
     [Test]
+    public void FaceTopology_WindingMatchesStoredNormals()
+    {
+        Vec3 p0 = new Vec3(0, 0, 0);
+        Vec3 pU = new Vec3(1, 0, 0);
+        Vec3 pV = new Vec3(0, 1, 0);
+        Vec3 pUV = new Vec3(1, 1, 0);
+
+        for (int i = 0; i < 6; i++)
+        {
+            FaceDirection direction = (FaceDirection)i;
+            Vec3 a = GetWindingCorner(direction, 0, p0, pU, pV, pUV);
+            Vec3 b = GetWindingCorner(direction, 1, p0, pU, pV, pUV);
+            Vec3 c = GetWindingCorner(direction, 2, p0, pU, pV, pUV);
+
+            Vec3 expectedNormal = FaceTopology.GetNormal(direction);
+            Vec3 actualNormal = Vec3.Cross(b - a, c - a);
+
+            Assert.Greater(
+                Vec3.Dot(actualNormal, expectedNormal),
+                0f,
+                $"FaceTopology winding does not match normal for {direction}.");
+        }
+    }
+
+    [Test]
     public void Greedy_TriangleWindingMatchesNormals()
     {
         ChunkMeshData meshData = new GreedyMeshBuilder()
@@ -164,6 +189,23 @@ public sealed class MeshBuilderPerformanceTests
             meshData.Vertices.Count,
             meshData.Triangles.Count / 3,
             meshData.Triangles.Count / 6);
+    }
+
+    private static Vec3 GetWindingCorner(
+        FaceDirection direction,
+        int cornerIndex,
+        Vec3 p0,
+        Vec3 pU,
+        Vec3 pV,
+        Vec3 pUV)
+    {
+        return FaceTopology.GetWindingCornerIndex(direction, cornerIndex) switch
+        {
+            0 => p0,
+            1 => pU,
+            2 => pV,
+            _ => pUV
+        };
     }
 
     private readonly struct MeshTiming

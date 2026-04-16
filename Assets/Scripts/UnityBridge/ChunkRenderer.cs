@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -165,6 +166,8 @@ public sealed class ChunkRenderer : MonoBehaviour
             return;
         }
 
+        var stopwatch = Stopwatch.StartNew();
+
         // 지금 NaiveMeshBuilder는 Schedule 안에서 즉시 계산하고 완료된 handle을 돌려줍니다.
         // 나중에 JobSystemMeshBuilder를 꽂으면 Schedule은 JobHandle을 반환하고, Complete에서 결과를 수집합니다.
         IMeshBuildHandle meshBuildHandle = meshBuilder.Schedule(neighborhood);
@@ -206,6 +209,9 @@ public sealed class ChunkRenderer : MonoBehaviour
 
         meshCollider.sharedMesh = null;
         meshCollider.sharedMesh = generatedMesh;
+
+        stopwatch.Stop();
+        VoxelPerformanceStats.RecordMeshRebuild(stopwatch.Elapsed.TotalMilliseconds, meshData);
     }
 
     private void ConvertMeshData(ChunkMeshData meshData)
@@ -257,7 +263,7 @@ public sealed class ChunkRenderer : MonoBehaviour
         {
             if (voxelAtlas == null)
             {
-                Debug.LogError(
+                UnityEngine.Debug.LogError(
                     $"{nameof(voxelAtlas)} is required. Assign voxel_atlas.png in the Inspector.",
                     this);
                 return;
@@ -307,7 +313,7 @@ public sealed class ChunkRenderer : MonoBehaviour
         Camera cameraToUse = editCamera != null ? editCamera : Camera.main;
         if (cameraToUse == null)
         {
-            Debug.LogError($"{nameof(editCamera)} is required because no MainCamera was found.", this);
+            UnityEngine.Debug.LogError($"{nameof(editCamera)} is required because no MainCamera was found.", this);
             return;
         }
 
