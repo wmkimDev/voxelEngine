@@ -24,14 +24,6 @@ public sealed class NaiveMeshBuilder : IMeshBuilder
         { new Vec3(0, 0, 0), new Vec3(0, 1, 0), new Vec3(1, 1, 0), new Vec3(1, 0, 0) }, // -Z
     };
 
-    private static readonly Vec2[] FaceUvs =
-    {
-        new Vec2(0, 0),
-        new Vec2(0, 1),
-        new Vec2(1, 1),
-        new Vec2(1, 0),
-    };
-
     public IMeshBuildHandle Schedule(ChunkNeighborhood neighborhood)
     {
         // Naive 구현은 아직 별도 스레드를 쓰지 않습니다.
@@ -91,24 +83,14 @@ public sealed class NaiveMeshBuilder : IMeshBuilder
         Vec3 voxelLocalPosition,
         ChunkMeshData meshData)
     {
-        int startIndex = meshData.Vertices.Count;
-
-        // 쿼드 하나는 정점 4개로 표현합니다.
-        for (int i = 0; i < 4; i++)
-        {
-            meshData.Vertices.Add(voxelLocalPosition + FaceCorners[faceIndex, i]);
-            meshData.Normals.Add(FaceNormals[faceIndex]);
-            meshData.Uvs.Add(MeshBuilderUv.GetAtlasUv(voxelType, FaceUvs[i]));
-        }
-
-        // 메시 삼각형은 정점 인덱스 3개 단위입니다.
-        // 쿼드 하나를 삼각형 두 개로 나눠서 넣습니다.
-        meshData.Triangles.Add(startIndex + 0);
-        meshData.Triangles.Add(startIndex + 1);
-        meshData.Triangles.Add(startIndex + 2);
-        meshData.Triangles.Add(startIndex + 0);
-        meshData.Triangles.Add(startIndex + 2);
-        meshData.Triangles.Add(startIndex + 3);
+        QuadMeshWriter.Write(
+            meshData,
+            voxelType,
+            FaceNormals[faceIndex],
+            voxelLocalPosition + FaceCorners[faceIndex, 0],
+            voxelLocalPosition + FaceCorners[faceIndex, 1],
+            voxelLocalPosition + FaceCorners[faceIndex, 2],
+            voxelLocalPosition + FaceCorners[faceIndex, 3]);
     }
 
 }

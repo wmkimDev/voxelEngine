@@ -67,14 +67,6 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
         new FaceOrientation(Axis.Z, positive: false, faceIndex: 5),
     };
 
-    private static readonly Vec2[] FaceUvs =
-    {
-        new Vec2(0, 0),
-        new Vec2(0, 1),
-        new Vec2(1, 1),
-        new Vec2(1, 0),
-    };
-
     // p0 / pU / pV / pUV 네 꼭짓점을 어떤 순서로 넣어야
     // 각 방향의 법선과 삼각형 winding이 NaiveMeshBuilder와 일치하는지 정의합니다.
     private static readonly int[,] QuadCornerOrder =
@@ -265,22 +257,20 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
         Vec3 uVector = GetUVector(face.Axis, rect.Width);
         Vec3 vVector = GetVVector(face.Axis, rect.Height);
         Vec3 normal = GetNormal(face.Axis, face.Positive);
-        int startIndex = meshData.Vertices.Count;
 
         Vec3 p0 = origin;
         Vec3 pU = origin + uVector;
         Vec3 pV = origin + vVector;
         Vec3 pUV = origin + uVector + vVector;
 
-        AddVerticesWithCorrectWinding(meshData, face.FaceIndex, p0, pU, pV, pUV);
-        AddNormals(meshData, normal);
-        AddUvs(meshData, voxelType);
-        AddTriangles(meshData, startIndex);
+        WriteFaceWithCorrectWinding(meshData, face.FaceIndex, voxelType, normal, p0, pU, pV, pUV);
     }
 
-    private static void AddVerticesWithCorrectWinding(
+    private static void WriteFaceWithCorrectWinding(
         ChunkMeshData meshData,
         int faceIndex,
+        byte voxelType,
+        Vec3 normal,
         Vec3 p0,
         Vec3 pU,
         Vec3 pV,
@@ -288,8 +278,10 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
     {
         // faceIndex는 +X, -X, +Y, -Y, +Z, -Z 순서입니다.
         // 이 방향별 정점 순서를 맞춰야 삼각형 winding이 법선 방향과 일치합니다.
-        AddVertices(
+        QuadMeshWriter.Write(
             meshData,
+            voxelType,
+            normal,
             GetCorner(QuadCornerOrder[faceIndex, 0], p0, pU, pV, pUV),
             GetCorner(QuadCornerOrder[faceIndex, 1], p0, pU, pV, pUV),
             GetCorner(QuadCornerOrder[faceIndex, 2], p0, pU, pV, pUV),
@@ -307,46 +299,6 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
             2 => pV,
             _ => pUV
         };
-    }
-
-    private static void AddVertices(ChunkMeshData meshData, Vec3 a, Vec3 b, Vec3 c, Vec3 d)
-    {
-        // 쿼드 하나를 이루는 정점 4개를 현재 메시 버퍼 뒤에 순서대로 추가합니다.
-        // 실제 삼각형 인덱스는 AddTriangles가 별도로 붙입니다.
-        meshData.Vertices.Add(a);
-        meshData.Vertices.Add(b);
-        meshData.Vertices.Add(c);
-        meshData.Vertices.Add(d);
-    }
-
-    private static void AddNormals(ChunkMeshData meshData, Vec3 normal)
-    {
-        // 쿼드의 네 정점은 모두 같은 면을 공유하므로 같은 법선을 넣습니다.
-        for (int i = 0; i < 4; i++)
-        {
-            meshData.Normals.Add(normal);
-        }
-    }
-
-    private static void AddUvs(ChunkMeshData meshData, byte voxelType)
-    {
-        // 병합된 큰 쿼드도 정점은 4개이므로 UV도 4개가 필요합니다.
-        // 현재는 voxel 타입에 맞는 atlas 영역을 한 번만 붙입니다.
-        for (int i = 0; i < FaceUvs.Length; i++)
-        {
-            meshData.Uvs.Add(MeshBuilderUv.GetAtlasUv(voxelType, FaceUvs[i]));
-        }
-    }
-
-    private static void AddTriangles(ChunkMeshData meshData, int startIndex)
-    {
-        // 쿼드 하나를 삼각형 두 개로 나눠 인덱스를 추가합니다.
-        meshData.Triangles.Add(startIndex + 0);
-        meshData.Triangles.Add(startIndex + 1);
-        meshData.Triangles.Add(startIndex + 2);
-        meshData.Triangles.Add(startIndex + 0);
-        meshData.Triangles.Add(startIndex + 2);
-        meshData.Triangles.Add(startIndex + 3);
     }
 
     private static LocalPos ToLocalPos(Axis axis, int layer, int u, int v)
