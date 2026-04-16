@@ -3,6 +3,16 @@ using UnityEngine;
 
 public sealed class ChunkManager : MonoBehaviour
 {
+    private static readonly ChunkPos[] NeighborChunkOffsets =
+    {
+        new ChunkPos(1, 0, 0),
+        new ChunkPos(-1, 0, 0),
+        new ChunkPos(0, 1, 0),
+        new ChunkPos(0, -1, 0),
+        new ChunkPos(0, 0, 1),
+        new ChunkPos(0, 0, -1),
+    };
+
     [SerializeField] private Transform streamingTarget;
     [SerializeField] private VoxelWorldSettings worldSettings;
     [SerializeField] private Camera editCamera;
@@ -125,10 +135,12 @@ public sealed class ChunkManager : MonoBehaviour
 
         // requiredChunks는 "지금 월드에 있어야 하는 청크 목록"입니다.
         // 목록에서 빠진 기존 청크는 삭제하고, 목록에 있는데 아직 없는 청크는 새로 만듭니다.
-        // 마지막으로 새 이웃 관계를 기준으로 경계 면을 다시 계산합니다.
+        // 마지막에는 "이번 변화로 메시를 다시 계산해야 하는 청크"만 골라 재빌드합니다.
+        var chunksNeedingRebuild = new HashSet<ChunkPos>();
+        CollectChunksNeedingRebuildForUnload(requiredChunks, chunksNeedingRebuild);
         UnloadMissingChunks(requiredChunks);
-        LoadRequiredChunks(requiredChunks, targetChunk);
-        RebuildLoadedNeighborhoods();
+        LoadRequiredChunks(requiredChunks, targetChunk, chunksNeedingRebuild);
+        RebuildChunksNeedingMesh(chunksNeedingRebuild);
     }
 
     private void CreateChunkRenderer(ChunkPos chunkPos, ChunkNeighborhood neighborhood)
@@ -147,7 +159,7 @@ public sealed class ChunkManager : MonoBehaviour
             worldSettings != null ? worldSettings.VoxelAtlas : null,
             worldSettings != null ? worldSettings.PlaceVoxelType : VoxelType.Grass,
             worldSettings != null ? worldSettings.EditDistance : 30f,
-            editedLocalPos => RebuildNeighborsTouchedByEdit(chunkPos, editedLocalPos));
+            editedLocalPos => RebuildAffectedNeighborChunksForEdit(chunkPos, editedLocalPos));
 
         renderers.Add(chunkPos, renderer);
     }
@@ -203,7 +215,10 @@ public sealed class ChunkManager : MonoBehaviour
         return false;
     }
 
-    private void LoadRequiredChunks(IReadOnlyCollection<ChunkPos> requiredChunks, ChunkPos centerChunk)
+    private void LoadRequiredChunks(
+        IReadOnlyCollection<ChunkPos> requiredChunks,
+        ChunkPos centerChunk,
+        HashSet<ChunkPos> chunksNeedingRebuild)
     {
         var chunksToLoad = new List<ChunkPos>();
         foreach (ChunkPos chunkPos in requiredChunks)
@@ -227,17 +242,40 @@ public sealed class ChunkManager : MonoBehaviour
             ChunkData chunkData = CreateChunkData(chunkPos);
             chunks.Add(chunkPos, chunkData);
             CreateChunkRenderer(chunkPos, CreateNeighborhood(chunkPos));
+
+            // 새 청크가 들어오면 그 청크와 맞닿은 기존 청크들의 경계 면 판정이 달라질 수 있습니다.
+            // 새 청크 자신은 Initialize 안에서 이미 한 번 메시를 만들었으므로, 여기서는 이웃만 다시 보게 합니다.
+            AddAdjacentChunkPositions(chunkPos, chunksNeedingRebuild);
         }
     }
 
-    private void RebuildLoadedNeighborhoods()
+    private void CollectChunksNeedingRebuildForUnload(
+        IReadOnlyCollection<ChunkPos> requiredChunks,
+        HashSet<ChunkPos> chunksNeedingRebuild)
     {
-        foreach (KeyValuePair<ChunkPos, ChunkRenderer> pair in renderers)
+        var requiredSet = new HashSet<ChunkPos>(requiredChunks);
+
+        foreach (ChunkPos chunkPos in chunks.Keys)
         {
-            // 새 청크가 로드되거나 기존 청크가 언로드되면 경계 면 판정이 달라집니다.
-            // 그래서 로드된 렌더러는 최신 이웃 정보를 받은 뒤 다시 메시를 만들어야 합니다.
-            pair.Value.UpdateNeighborhood(CreateNeighborhood(pair.Key));
-            pair.Value.RebuildMesh();
+            if (!requiredSet.Contains(chunkPos))
+            {
+                // 사라질 청크 자신은 곧 삭제되므로 재빌드할 필요가 없습니다.
+                // 대신 그 청크에 맞닿아 있던 이웃은 "바깥이 공기인지"를 다시 계산해야 합니다.
+                AddAdjacentChunkPositions(chunkPos, chunksNeedingRebuild);
+            }
+        }
+    }
+
+    private void RebuildChunksNeedingMesh(HashSet<ChunkPos> chunksNeedingRebuild)
+    {
+        foreach (ChunkPos chunkPos in chunksNeedingRebuild)
+        {
+            if (renderers.TryGetValue(chunkPos, out ChunkRenderer renderer))
+            {
+                // 로드/언로드 후에는 이웃 참조 자체가 달라질 수 있으므로 최신 neighborhood를 다시 넣습니다.
+                renderer.UpdateNeighborhood(CreateNeighborhood(chunkPos));
+                renderer.RebuildMesh();
+            }
         }
     }
 
@@ -286,7 +324,18 @@ public sealed class ChunkManager : MonoBehaviour
         return chunks.TryGetValue(chunkPos, out ChunkData chunkData) ? chunkData : null;
     }
 
-    private void RebuildNeighborsTouchedByEdit(ChunkPos chunkPos, LocalPos editedLocalPos)
+    private void AddAdjacentChunkPositions(ChunkPos chunkPos, HashSet<ChunkPos> chunksNeedingRebuild)
+    {
+        foreach (ChunkPos offset in NeighborChunkOffsets)
+        {
+            chunksNeedingRebuild.Add(new ChunkPos(
+                chunkPos.X + offset.X,
+                chunkPos.Y + offset.Y,
+                chunkPos.Z + offset.Z));
+        }
+    }
+
+    private void RebuildAffectedNeighborChunksForEdit(ChunkPos chunkPos, LocalPos editedLocalPos)
     {
         ChunkData chunkData = GetChunk(chunkPos);
         if (chunkData == null)
