@@ -29,6 +29,24 @@ public readonly struct Vec3
     {
         return new Vec3(left.X + right.X, left.Y + right.Y, left.Z + right.Z);
     }
+
+    public static Vec3 operator -(Vec3 left, Vec3 right)
+    {
+        return new Vec3(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
+    }
+
+    public static Vec3 Cross(Vec3 left, Vec3 right)
+    {
+        return new Vec3(
+            (left.Y * right.Z) - (left.Z * right.Y),
+            (left.Z * right.X) - (left.X * right.Z),
+            (left.X * right.Y) - (left.Y * right.X));
+    }
+
+    public static float Dot(Vec3 left, Vec3 right)
+    {
+        return (left.X * right.X) + (left.Y * right.Y) + (left.Z * right.Z);
+    }
 }
 
 public sealed class ChunkMeshData

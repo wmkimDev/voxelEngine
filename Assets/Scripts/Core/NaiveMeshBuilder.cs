@@ -98,7 +98,7 @@ public sealed class NaiveMeshBuilder : IMeshBuilder
         {
             meshData.Vertices.Add(voxelLocalPosition + FaceCorners[faceIndex, i]);
             meshData.Normals.Add(FaceNormals[faceIndex]);
-            meshData.Uvs.Add(GetAtlasUv(voxelType, FaceUvs[i]));
+            meshData.Uvs.Add(MeshBuilderUv.GetAtlasUv(voxelType, FaceUvs[i]));
         }
 
         // 메시 삼각형은 정점 인덱스 3개 단위입니다.
@@ -111,47 +111,4 @@ public sealed class NaiveMeshBuilder : IMeshBuilder
         meshData.Triangles.Add(startIndex + 3);
     }
 
-    private static Vec2 GetAtlasUv(byte voxelType, Vec2 faceUv)
-    {
-        // 4칸짜리 가로 아틀라스를 사용합니다.
-        // Dirt, Grass, Stone, Sand가 각각 다른 x 영역을 씁니다.
-        int tileIndex = voxelType switch
-        {
-            VoxelType.Dirt => 0,
-            VoxelType.Grass => 1,
-            VoxelType.Stone => 2,
-            VoxelType.Sand => 3,
-            _ => 0
-        };
-
-        const float tileCount = 4f;
-        float tileWidth = 1f / tileCount;
-        float padding = 0.01f;
-        float u = (tileIndex * tileWidth) + Lerp(padding, tileWidth - padding, faceUv.X);
-        float v = Lerp(padding, 1f - padding, faceUv.Y);
-
-        return new Vec2(u, v);
-    }
-
-    private static float Lerp(float a, float b, float t)
-    {
-        return a + ((b - a) * t);
-    }
-
-    private sealed class CompletedMeshBuildHandle : IMeshBuildHandle
-    {
-        private readonly ChunkMeshData meshData;
-
-        public CompletedMeshBuildHandle(ChunkMeshData meshData)
-        {
-            this.meshData = meshData;
-        }
-
-        public bool IsCompleted => true;
-
-        public ChunkMeshData Complete()
-        {
-            return meshData;
-        }
-    }
 }

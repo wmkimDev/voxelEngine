@@ -3,7 +3,14 @@ using UnityEngine;
 
 public sealed class ChunkManager : MonoBehaviour
 {
+    private enum MeshBuilderMode
+    {
+        Naive,
+        Greedy
+    }
+
     [SerializeField] private Transform streamingTarget;
+    [SerializeField] private MeshBuilderMode meshBuilderMode = MeshBuilderMode.Greedy;
     [SerializeField] private int viewDistanceInChunks = 1;
     [SerializeField] private int minLayerY = 0;
     [SerializeField] private int maxLayerY = 0;
@@ -20,7 +27,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     private readonly Dictionary<ChunkPos, ChunkData> chunks = new();
     private readonly Dictionary<ChunkPos, ChunkRenderer> renderers = new();
-    private readonly IMeshBuilder meshBuilder = new NaiveMeshBuilder();
+    private IMeshBuilder meshBuilder;
     private readonly ChunkLoadScheduler loadScheduler = new();
     private IWorldGenerator worldGenerator;
     private IChunkStreamingPolicy streamingPolicy;
@@ -28,6 +35,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void Start()
     {
+        meshBuilder = CreateMeshBuilder();
         worldGenerator = new NoiseWorldGenerator(seed, noiseScale, baseHeight, heightAmplitude);
         RebuildStreamingPolicy();
         UpdateStreaming(force: true);
@@ -56,6 +64,7 @@ public sealed class ChunkManager : MonoBehaviour
         ClearRuntimeChunks();
         chunks.Clear();
         renderers.Clear();
+        meshBuilder = CreateMeshBuilder();
         worldGenerator = new NoiseWorldGenerator(seed, noiseScale, baseHeight, heightAmplitude);
         RebuildStreamingPolicy();
         currentCenterChunk = null;
@@ -65,6 +74,13 @@ public sealed class ChunkManager : MonoBehaviour
     private void RebuildStreamingPolicy()
     {
         streamingPolicy = new SquareStreamingPolicy(viewDistanceInChunks, minLayerY, maxLayerY);
+    }
+
+    private IMeshBuilder CreateMeshBuilder()
+    {
+        return meshBuilderMode == MeshBuilderMode.Greedy
+            ? new GreedyMeshBuilder()
+            : new NaiveMeshBuilder();
     }
 
     private void UpdateStreaming(bool force)
