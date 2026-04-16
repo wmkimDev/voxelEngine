@@ -1,12 +1,5 @@
 public sealed class GreedyMeshBuilder : IMeshBuilder
 {
-    private enum Axis
-    {
-        X = 0,
-        Y = 1,
-        Z = 2,
-    }
-
     private readonly struct FaceCell
     {
         // mask 한 칸이 "이 위치에 그릴 면이 있는가"와 "어떤 voxel 타입의 면인가"를 기억합니다.
@@ -25,11 +18,11 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
     {
         // Greedy는 "어느 축의 어느 방향 면을 처리 중인가"를 반복해서 넘겨야 합니다.
         // axis와 positive를 따로 들고 다니면 호출부가 길어지므로 하나로 묶어둡니다.
-        public readonly Axis Axis;
+        public readonly GreedyGeometry.Axis Axis;
         public readonly bool Positive;
         public readonly FaceDirection Direction;
 
-        public FaceOrientation(Axis axis, bool positive, FaceDirection direction)
+        public FaceOrientation(GreedyGeometry.Axis axis, bool positive, FaceDirection direction)
         {
             Axis = axis;
             Positive = positive;
@@ -59,12 +52,12 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
     {
         // +X, -X, +Y, -Y, +Z, -Z 순서로 한 번씩 처리합니다.
         // Direction은 FaceTopology의 공용 winding/normal 규칙과 직접 연결됩니다.
-        new FaceOrientation(Axis.X, positive: true, FaceDirection.PositiveX),
-        new FaceOrientation(Axis.X, positive: false, FaceDirection.NegativeX),
-        new FaceOrientation(Axis.Y, positive: true, FaceDirection.PositiveY),
-        new FaceOrientation(Axis.Y, positive: false, FaceDirection.NegativeY),
-        new FaceOrientation(Axis.Z, positive: true, FaceDirection.PositiveZ),
-        new FaceOrientation(Axis.Z, positive: false, FaceDirection.NegativeZ),
+        new FaceOrientation(GreedyGeometry.Axis.X, positive: true, FaceDirection.PositiveX),
+        new FaceOrientation(GreedyGeometry.Axis.X, positive: false, FaceDirection.NegativeX),
+        new FaceOrientation(GreedyGeometry.Axis.Y, positive: true, FaceDirection.PositiveY),
+        new FaceOrientation(GreedyGeometry.Axis.Y, positive: false, FaceDirection.NegativeY),
+        new FaceOrientation(GreedyGeometry.Axis.Z, positive: true, FaceDirection.PositiveZ),
+        new FaceOrientation(GreedyGeometry.Axis.Z, positive: false, FaceDirection.NegativeZ),
     };
 
     public IMeshBuildHandle Schedule(ChunkNeighborhood neighborhood)
@@ -147,7 +140,7 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
             {
                 // axis/layer/u/v는 "현재 처리 중인 2D 판"의 좌표입니다.
                 // ToLocalPos가 이것을 실제 청크 내부 x/y/z 좌표로 바꿉니다.
-                LocalPos voxel = ToLocalPos(face.Axis, layer, u, v);
+                LocalPos voxel = GreedyGeometry.ToLocalPos(face.Axis, layer, u, v);
                 byte voxelType = neighborhood.GetVoxel(voxel);
                 if (voxelType == VoxelType.Air)
                 {
@@ -158,7 +151,7 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
                 // 현재 voxel 옆이 공기일 때만 해당 방향의 면이 보입니다.
                 // 이웃 청크가 있으면 ChunkNeighborhood가 경계 너머 voxel까지 확인합니다.
                 int neighborOffset = face.Positive ? 1 : -1;
-                LocalPos neighbor = Offset(voxel, face.Axis, neighborOffset);
+                LocalPos neighbor = GreedyGeometry.Offset(voxel, face.Axis, neighborOffset);
                 bool visible = neighborhood.GetVoxel(neighbor) == VoxelType.Air;
                 mask[u, v] = new FaceCell(visible, voxelType);
             }
@@ -241,9 +234,9 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
         MergeRect rect,
         byte voxelType)
     {
-        Vec3 origin = GetFaceOrigin(face, layer, rect.StartU, rect.StartV);
-        Vec3 uVector = GetUVector(face.Axis, rect.Width);
-        Vec3 vVector = GetVVector(face.Axis, rect.Height);
+        Vec3 origin = GreedyGeometry.GetFaceOrigin(face.Axis, face.Positive, layer, rect.StartU, rect.StartV);
+        Vec3 uVector = GreedyGeometry.GetUVector(face.Axis, rect.Width);
+        Vec3 vVector = GreedyGeometry.GetVVector(face.Axis, rect.Height);
         Vec3 normal = FaceTopology.GetNormal(face.Direction);
 
         Vec3 p0 = origin;
@@ -286,69 +279,6 @@ public sealed class GreedyMeshBuilder : IMeshBuilder
             1 => pU,
             2 => pV,
             _ => pUV
-        };
-    }
-
-    private static LocalPos ToLocalPos(Axis axis, int layer, int u, int v)
-    {
-        // axis별로 "layer가 고정되는 축"이 달라집니다.
-        // X면을 처리할 때는 x=layer이고, u/v는 y/z가 됩니다.
-        return axis switch
-        {
-            Axis.X => new LocalPos(layer, u, v),
-            Axis.Y => new LocalPos(u, layer, v),
-            _ => new LocalPos(u, v, layer)
-        };
-    }
-
-    private static LocalPos Offset(LocalPos pos, Axis axis, int offset)
-    {
-        // 현재 voxel에서 검사 중인 축으로 한 칸 옆 좌표를 구합니다.
-        // 이웃이 공기인지 확인해 "면이 노출되는가"를 판단할 때 사용합니다.
-        return axis switch
-        {
-            Axis.X => new LocalPos(pos.X + offset, pos.Y, pos.Z),
-            Axis.Y => new LocalPos(pos.X, pos.Y + offset, pos.Z),
-            _ => new LocalPos(pos.X, pos.Y, pos.Z + offset)
-        };
-    }
-
-    private static Vec3 GetFaceOrigin(FaceOrientation face, int layer, int u, int v)
-    {
-        // +방향 면은 voxel의 끝쪽 평면(layer + 1)에 있고,
-        // -방향 면은 voxel의 시작쪽 평면(layer)에 있습니다.
-        // 즉 "현재 직사각형 쿼드의 시작 꼭짓점이 3D 공간에서 어디냐"를 계산하는 함수입니다.
-        int faceLayer = face.Positive ? layer + 1 : layer;
-
-        return face.Axis switch
-        {
-            Axis.X => new Vec3(faceLayer, u, v),
-            Axis.Y => new Vec3(u, faceLayer, v),
-            _ => new Vec3(u, v, faceLayer)
-        };
-    }
-
-    private static Vec3 GetUVector(Axis axis, int width)
-    {
-        // 2D mask에서 가로(width)로 합쳐진 길이를 3D 공간 벡터로 바꿉니다.
-        // 어떤 축 면을 처리 중인지에 따라 실제 늘어나는 방향이 달라집니다.
-        return axis switch
-        {
-            Axis.X => new Vec3(0, width, 0),
-            Axis.Y => new Vec3(width, 0, 0),
-            _ => new Vec3(width, 0, 0)
-        };
-    }
-
-    private static Vec3 GetVVector(Axis axis, int height)
-    {
-        // 2D mask에서 세로(height)로 합쳐진 길이를 3D 공간 벡터로 바꿉니다.
-        // GetUVector와 짝을 이루며, 두 벡터가 합쳐져 큰 쿼드의 크기가 됩니다.
-        return axis switch
-        {
-            Axis.X => new Vec3(0, 0, height),
-            Axis.Y => new Vec3(0, 0, height),
-            _ => new Vec3(0, height, 0)
         };
     }
 

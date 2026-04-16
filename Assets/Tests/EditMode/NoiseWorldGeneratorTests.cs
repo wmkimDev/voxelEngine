@@ -28,7 +28,8 @@ public sealed class NoiseWorldGeneratorTests
         Assert.That(chunk.GetVoxel(new LocalPos(0, surfaceY, 0)), Is.EqualTo(VoxelType.Sand));
         Assert.That(chunk.GetVoxel(new LocalPos(0, surfaceY - 1, 0)), Is.EqualTo(VoxelType.Sand));
         Assert.That(chunk.GetVoxel(new LocalPos(0, surfaceY - 2, 0)), Is.EqualTo(VoxelType.Sand));
-        Assert.That(chunk.GetVoxel(new LocalPos(0, surfaceY - 3, 0)), Is.EqualTo(VoxelType.Stone));
+        Assert.That(chunk.GetVoxel(new LocalPos(0, surfaceY - 3, 0)), Is.EqualTo(VoxelType.Sand));
+        Assert.That(chunk.GetVoxel(new LocalPos(0, surfaceY - 4, 0)), Is.EqualTo(VoxelType.Stone));
     }
 
     // caveThreshold를 0으로 두면 표면 보호 두께 아래는 모두 동굴로 비워집니다.

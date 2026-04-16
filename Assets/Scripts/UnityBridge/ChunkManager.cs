@@ -70,6 +70,7 @@ public sealed class ChunkManager : MonoBehaviour
         ClearRuntimeChunks();
         chunks.Clear();
         renderers.Clear();
+        DisposeMeshBuilder();
         meshBuilder = CreateMeshBuilder();
         worldGenerator = CreateWorldGenerator();
         AlignStreamingTargetToSurface();
@@ -91,8 +92,17 @@ public sealed class ChunkManager : MonoBehaviour
         {
             VoxelWorldSettings.MeshBuilderMode.Naive => new NaiveMeshBuilder(),
             VoxelWorldSettings.MeshBuilderMode.JobNaive => new JobSystemMeshBuilder(),
+            VoxelWorldSettings.MeshBuilderMode.JobGreedy => new JobGreedyMeshBuilder(),
             _ => new GreedyMeshBuilder(),
         };
+    }
+
+    private void DisposeMeshBuilder()
+    {
+        if (meshBuilder is System.IDisposable disposableBuilder)
+        {
+            disposableBuilder.Dispose();
+        }
     }
 
     private IWorldGenerator CreateWorldGenerator()
@@ -380,6 +390,11 @@ public sealed class ChunkManager : MonoBehaviour
                 DestroyImmediate(child.gameObject);
             }
         }
+    }
+
+    private void OnDestroy()
+    {
+        DisposeMeshBuilder();
     }
 
     private ChunkNeighborhood CreateNeighborhood(ChunkPos chunkPos)

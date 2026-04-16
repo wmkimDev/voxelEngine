@@ -8,6 +8,9 @@ public enum FaceDirection
     NegativeZ = 5,
 }
 
+// voxel 면 방향별 공용 topology 규칙입니다.
+// 각 면의 normal, 단위 쿼드 꼭짓점, winding 순서를 한곳에 모아
+// Naive/Greedy/Job 메셔가 같은 face 정의를 공유하게 합니다.
 public static class FaceTopology
 {
     // 엔진 전체에서 쓰는 "면 방향 -> 법선" 공식 정의입니다.

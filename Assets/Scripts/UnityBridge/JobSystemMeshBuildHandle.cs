@@ -4,46 +4,22 @@ using Unity.Jobs;
 public sealed class JobSystemMeshBuildHandle : IMeshBuildHandle
 {
     private JobHandle handle;
-    private NativeArray<byte> center;
-    private NativeArray<byte> positiveX;
-    private NativeArray<byte> negativeX;
-    private NativeArray<byte> positiveY;
-    private NativeArray<byte> negativeY;
-    private NativeArray<byte> positiveZ;
-    private NativeArray<byte> negativeZ;
-    private NativeList<Vec3> vertices;
-    private NativeList<int> triangles;
-    private NativeList<Vec3> normals;
-    private NativeList<Vec2> uvs;
+    private JobMeshBuildBuffers buffers;
+    private readonly JobMeshBuildBufferPool bufferPool;
+    private readonly bool hasGreedyScratchBuffers;
     private ChunkMeshData completedMeshData;
     private bool hasCompleted;
 
     public JobSystemMeshBuildHandle(
         JobHandle handle,
-        NativeArray<byte> center,
-        NativeArray<byte> positiveX,
-        NativeArray<byte> negativeX,
-        NativeArray<byte> positiveY,
-        NativeArray<byte> negativeY,
-        NativeArray<byte> positiveZ,
-        NativeArray<byte> negativeZ,
-        NativeList<Vec3> vertices,
-        NativeList<int> triangles,
-        NativeList<Vec3> normals,
-        NativeList<Vec2> uvs)
+        JobMeshBuildBuffers buffers,
+        JobMeshBuildBufferPool bufferPool,
+        bool hasGreedyScratchBuffers)
     {
         this.handle = handle;
-        this.center = center;
-        this.positiveX = positiveX;
-        this.negativeX = negativeX;
-        this.positiveY = positiveY;
-        this.negativeY = negativeY;
-        this.positiveZ = positiveZ;
-        this.negativeZ = negativeZ;
-        this.vertices = vertices;
-        this.triangles = triangles;
-        this.normals = normals;
-        this.uvs = uvs;
+        this.buffers = buffers;
+        this.bufferPool = bufferPool;
+        this.hasGreedyScratchBuffers = hasGreedyScratchBuffers;
     }
 
     public bool IsCompleted => hasCompleted || handle.IsCompleted;
@@ -60,24 +36,24 @@ public sealed class JobSystemMeshBuildHandle : IMeshBuildHandle
         // Job이 만든 NativeList 결과를 기존 렌더 경로가 그대로 쓸 수 있도록
         // Core의 ChunkMeshData로 한 번 옮겨 담습니다.
         var meshData = new ChunkMeshData();
-        for (int i = 0; i < vertices.Length; i++)
+        for (int i = 0; i < buffers.Vertices.Length; i++)
         {
-            meshData.Vertices.Add(vertices[i]);
+            meshData.Vertices.Add(buffers.Vertices[i]);
         }
 
-        for (int i = 0; i < triangles.Length; i++)
+        for (int i = 0; i < buffers.Triangles.Length; i++)
         {
-            meshData.Triangles.Add(triangles[i]);
+            meshData.Triangles.Add(buffers.Triangles[i]);
         }
 
-        for (int i = 0; i < normals.Length; i++)
+        for (int i = 0; i < buffers.Normals.Length; i++)
         {
-            meshData.Normals.Add(normals[i]);
+            meshData.Normals.Add(buffers.Normals[i]);
         }
 
-        for (int i = 0; i < uvs.Length; i++)
+        for (int i = 0; i < buffers.Uvs.Length; i++)
         {
-            meshData.Uvs.Add(uvs[i]);
+            meshData.Uvs.Add(buffers.Uvs[i]);
         }
 
         DisposeNativeData();
@@ -88,17 +64,8 @@ public sealed class JobSystemMeshBuildHandle : IMeshBuildHandle
 
     private void DisposeNativeData()
     {
-        // Job용 메모리는 직접 해제해야 누수가 생기지 않습니다.
-        if (center.IsCreated) center.Dispose();
-        if (positiveX.IsCreated) positiveX.Dispose();
-        if (negativeX.IsCreated) negativeX.Dispose();
-        if (positiveY.IsCreated) positiveY.Dispose();
-        if (negativeY.IsCreated) negativeY.Dispose();
-        if (positiveZ.IsCreated) positiveZ.Dispose();
-        if (negativeZ.IsCreated) negativeZ.Dispose();
-        if (vertices.IsCreated) vertices.Dispose();
-        if (triangles.IsCreated) triangles.Dispose();
-        if (normals.IsCreated) normals.Dispose();
-        if (uvs.IsCreated) uvs.Dispose();
+        // 완료된 버퍼는 다음 Schedule에서 다시 쓸 수 있도록 풀에 반납합니다.
+        // 풀이 이미 정리된 상태면 Release 쪽에서 바로 Dispose합니다.
+        bufferPool.Release(buffers, hasGreedyScratchBuffers);
     }
 }

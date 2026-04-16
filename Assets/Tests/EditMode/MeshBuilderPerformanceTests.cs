@@ -37,6 +37,22 @@ public sealed class MeshBuilderPerformanceTests
         RunBenchmark("Greedy", new GreedyMeshBuilder());
     }
 
+    // 같은 노이즈 입력에서 JobNaive 메셔의 성능을 측정합니다.
+    // 순수 Job 도입만으로 기준 Naive 대비 어떤 이득이 있는지 비교할 때 사용합니다.
+    [Test, Performance]
+    public void JobNaive_BuildNoiseTerrainWithNeighbors()
+    {
+        RunBenchmark("JobNaive", new JobSystemMeshBuilder());
+    }
+
+    // 같은 노이즈 입력에서 JobGreedy 메셔의 성능을 측정합니다.
+    // Greedy의 면 수 감소와 Job의 비동기 계산을 함께 적용했을 때의 기준 성능입니다.
+    [Test, Performance]
+    public void JobGreedy_BuildNoiseTerrainWithNeighbors()
+    {
+        RunBenchmark("JobGreedy", new JobGreedyMeshBuilder());
+    }
+
     // Greedy 메셔가 같은 지형에서 Naive보다 적은 쿼드를 만드는지 검증합니다.
     // 성능 자체보다 "면 병합이 실제로 일어났는가"를 확인하는 정확성 테스트입니다.
     [Test]
@@ -54,19 +70,32 @@ public sealed class MeshBuilderPerformanceTests
             $"naive quads {naive.Quads} | greedy quads {greedy.Quads} | reduced {reduction:F1}%");
     }
 
+    // JobGreedy가 같은 Greedy 알고리즘을 Native/Job 버퍼 위에서 실행해도
+    // 기본 Greedy와 같은 메시 크기를 만드는지 확인하는 정확성 테스트입니다.
+    [Test]
+    public void JobGreedy_MatchesGreedyMeshStatsOnNoiseTerrain()
+    {
+        ChunkNeighborhood neighborhood = CreateNoiseTerrainWithNeighbors();
+        MeshStats greedy = GetMeshStats(new GreedyMeshBuilder().Schedule(neighborhood).Complete());
+        MeshStats jobGreedy = GetMeshStats(new JobGreedyMeshBuilder().Schedule(neighborhood).Complete());
+
+        Assert.AreEqual(greedy.Vertices, jobGreedy.Vertices);
+        Assert.AreEqual(greedy.Triangles, jobGreedy.Triangles);
+        Assert.AreEqual(greedy.Quads, jobGreedy.Quads);
+    }
+
     // 공용 FaceTopology 테이블의 winding 순서가 저장된 normal 방향과 일치하는지 검증합니다.
     // face 규칙이 뒤집히면 Naive/Greedy/Job 메셔가 모두 잘못될 수 있으므로 별도로 막아둡니다.
     [Test]
     public void FaceTopology_WindingMatchesStoredNormals()
     {
-        Vec3 p0 = new Vec3(0, 0, 0);
-        Vec3 pU = new Vec3(1, 0, 0);
-        Vec3 pV = new Vec3(0, 1, 0);
-        Vec3 pUV = new Vec3(1, 1, 0);
-
         for (int i = 0; i < 6; i++)
         {
             FaceDirection direction = (FaceDirection)i;
+            Vec3 p0 = GetGreedyQuadOrigin(direction);
+            Vec3 pU = p0 + GetGreedyQuadUVector(direction);
+            Vec3 pV = p0 + GetGreedyQuadVVector(direction);
+            Vec3 pUV = p0 + GetGreedyQuadUVector(direction) + GetGreedyQuadVVector(direction);
             Vec3 a = GetWindingCorner(direction, 0, p0, pU, pV, pUV);
             Vec3 b = GetWindingCorner(direction, 1, p0, pU, pV, pUV);
             Vec3 c = GetWindingCorner(direction, 2, p0, pU, pV, pUV);
@@ -231,6 +260,45 @@ public sealed class MeshBuilderPerformanceTests
             1 => pU,
             2 => pV,
             _ => pUV
+        };
+    }
+
+    private static Vec3 GetGreedyQuadOrigin(FaceDirection direction)
+    {
+        return direction switch
+        {
+            FaceDirection.PositiveX => new Vec3(1, 0, 0),
+            FaceDirection.NegativeX => new Vec3(0, 0, 0),
+            FaceDirection.PositiveY => new Vec3(0, 1, 0),
+            FaceDirection.NegativeY => new Vec3(0, 0, 0),
+            FaceDirection.PositiveZ => new Vec3(0, 0, 1),
+            _ => new Vec3(0, 0, 0)
+        };
+    }
+
+    private static Vec3 GetGreedyQuadUVector(FaceDirection direction)
+    {
+        return direction switch
+        {
+            FaceDirection.PositiveX => new Vec3(0, 1, 0),
+            FaceDirection.NegativeX => new Vec3(0, 1, 0),
+            FaceDirection.PositiveY => new Vec3(1, 0, 0),
+            FaceDirection.NegativeY => new Vec3(1, 0, 0),
+            FaceDirection.PositiveZ => new Vec3(1, 0, 0),
+            _ => new Vec3(1, 0, 0)
+        };
+    }
+
+    private static Vec3 GetGreedyQuadVVector(FaceDirection direction)
+    {
+        return direction switch
+        {
+            FaceDirection.PositiveX => new Vec3(0, 0, 1),
+            FaceDirection.NegativeX => new Vec3(0, 0, 1),
+            FaceDirection.PositiveY => new Vec3(0, 0, 1),
+            FaceDirection.NegativeY => new Vec3(0, 0, 1),
+            FaceDirection.PositiveZ => new Vec3(0, 1, 0),
+            _ => new Vec3(0, 1, 0)
         };
     }
 

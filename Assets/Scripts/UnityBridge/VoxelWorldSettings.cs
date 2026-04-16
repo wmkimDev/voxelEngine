@@ -7,7 +7,8 @@ public sealed class VoxelWorldSettings : ScriptableObject
     {
         Naive,
         Greedy,
-        JobNaive
+        JobNaive,
+        JobGreedy
     }
 
     public enum StreamingMode
