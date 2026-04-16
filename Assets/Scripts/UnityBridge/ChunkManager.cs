@@ -21,6 +21,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     private readonly Dictionary<ChunkPos, ChunkData> chunks = new();
     private readonly Dictionary<ChunkPos, ChunkMeshController> renderers = new();
+    private readonly ChunkDataCache chunkDataCache = new(0);
     private IMeshBuilder meshBuilder;
     private readonly ChunkLoadScheduler loadScheduler = new();
     private readonly ChunkStreamingPriorityEvaluator streamingPriorityEvaluator = new();
@@ -45,6 +46,8 @@ public sealed class ChunkManager : MonoBehaviour
         }
 
         VoxelPerformanceStats.Reset();
+        // 캐시도 world settings를 단일 기준으로 따라가게 합니다.
+        chunkDataCache.SetCapacity(worldSettings.CachedChunkCount);
         meshBuilder = CreateMeshBuilder();
         worldGenerator = CreateWorldGenerator();
         AlignStreamingTargetToSurface();
@@ -73,6 +76,10 @@ public sealed class ChunkManager : MonoBehaviour
         ClearRuntimeChunks();
         chunks.Clear();
         renderers.Clear();
+        // 월드 전체를 다시 만들 때는 예전 청크 캐시도 함께 비웁니다.
+        // 생성 규칙/메셔/시드가 달라질 수 있으므로 재사용하면 오히려 잘못된 데이터가 됩니다.
+        chunkDataCache.Clear();
+        chunkDataCache.SetCapacity(worldSettings.CachedChunkCount);
         DisposeMeshBuilder();
         meshBuilder = CreateMeshBuilder();
         worldGenerator = CreateWorldGenerator();
@@ -144,6 +151,9 @@ public sealed class ChunkManager : MonoBehaviour
         {
             RebuildStreamingPolicy();
         }
+
+        // 런타임 중 설정값을 바꿔도 캐시 용량이 따라가도록 매 스트리밍 틱에서 동기화합니다.
+        chunkDataCache.SetCapacity(worldSettings.CachedChunkCount);
 
         ChunkPos targetChunk = GetStreamingCenterChunk();
         IReadOnlyCollection<ChunkPos> requiredChunks = loadStreamingPolicy.GetRequiredChunks(targetChunk);
@@ -250,6 +260,13 @@ public sealed class ChunkManager : MonoBehaviour
 
         foreach (ChunkPos chunkPos in chunksToUnload)
         {
+            if (chunks.TryGetValue(chunkPos, out ChunkData chunkData))
+            {
+                // 렌더 대상에서 빠진 청크를 바로 버리지 않고 메모리에 잠깐 남깁니다.
+                // 이렇게 해두면 다시 같은 곳을 볼 때 생성기/노이즈 계산을 건너뛸 수 있습니다.
+                chunkDataCache.Store(chunkPos, chunkData);
+            }
+
             chunks.Remove(chunkPos);
 
             if (renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
@@ -346,6 +363,12 @@ public sealed class ChunkManager : MonoBehaviour
 
     private ChunkData CreateChunkData(ChunkPos chunkPos)
     {
+        if (chunkDataCache.TryTake(chunkPos, out ChunkData cachedChunkData))
+        {
+            // 최근에 언로드된 청크라면 생성기 대신 캐시된 데이터를 그대로 되돌립니다.
+            return cachedChunkData;
+        }
+
         var data = new ChunkData();
         // ChunkManager는 "언제 어떤 청크를 만들지"만 결정합니다.
         // 실제 voxel 배치는 IWorldGenerator 구현체가 담당합니다.

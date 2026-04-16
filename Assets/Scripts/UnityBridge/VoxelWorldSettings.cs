@@ -22,6 +22,9 @@ public sealed class VoxelWorldSettings : ScriptableObject
     [SerializeField] private int viewDistanceInChunks = 2;
     [SerializeField] private int unloadDistanceInChunks = 3;
     [SerializeField] private int colliderDistanceInChunks = 2;
+    // 언로드한 ChunkData를 메모리에 몇 개까지 남겨둘지 정합니다.
+    // 다시 보는 청크를 생성기부터 다시 만들지 않게 해 회전/왕복 시 팝인을 줄이는 용도입니다.
+    [SerializeField] private int cachedChunkCount = 256;
     [SerializeField] private int minLayerY = 0;
     [SerializeField] private int maxLayerY = 0;
     [SerializeField] private int maxChunkLoadsPerFrame = 4;
@@ -51,6 +54,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
     public int ViewDistanceInChunks => viewDistanceInChunks;
     public int UnloadDistanceInChunks => unloadDistanceInChunks;
     public int ColliderDistanceInChunks => colliderDistanceInChunks;
+    public int CachedChunkCount => cachedChunkCount;
     public int MinLayerY => minLayerY;
     public int MaxLayerY => maxLayerY;
     public int MaxChunkLoadsPerFrame => maxChunkLoadsPerFrame;
@@ -90,6 +94,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
         viewDistanceInChunks = Mathf.Max(0, viewDistanceInChunks);
         unloadDistanceInChunks = Mathf.Max(viewDistanceInChunks, unloadDistanceInChunks);
         colliderDistanceInChunks = Mathf.Clamp(colliderDistanceInChunks, 0, unloadDistanceInChunks);
+        cachedChunkCount = Mathf.Max(0, cachedChunkCount);
         maxLayerY = Mathf.Max(minLayerY, maxLayerY);
         maxChunkLoadsPerFrame = Mathf.Max(1, maxChunkLoadsPerFrame);
         editDistance = Mathf.Max(0.1f, editDistance);
