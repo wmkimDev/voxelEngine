@@ -18,7 +18,7 @@ public sealed class ChunkManager : MonoBehaviour
     [SerializeField] private Camera editCamera;
 
     private readonly Dictionary<ChunkPos, ChunkData> chunks = new();
-    private readonly Dictionary<ChunkPos, ChunkRenderer> renderers = new();
+    private readonly Dictionary<ChunkPos, ChunkMeshController> renderers = new();
     private IMeshBuilder meshBuilder;
     private readonly ChunkLoadScheduler loadScheduler = new();
     private IWorldGenerator worldGenerator;
@@ -146,14 +146,14 @@ public sealed class ChunkManager : MonoBehaviour
         RebuildChunksNeedingMesh(chunksNeedingRebuild);
     }
 
-    private void CreateChunkRenderer(ChunkPos chunkPos, ChunkNeighborhood neighborhood)
+    private void CreateChunkMeshController(ChunkPos chunkPos, ChunkNeighborhood neighborhood)
     {
         var chunkObject = new GameObject($"Chunk ({chunkPos.X}, {chunkPos.Y}, {chunkPos.Z})");
         chunkObject.transform.SetParent(transform, worldPositionStays: false);
         WorldPos chunkOrigin = chunkPos.ToWorldOrigin(neighborhood.Size);
         chunkObject.transform.localPosition = new Vector3(chunkOrigin.X, chunkOrigin.Y, chunkOrigin.Z);
 
-        ChunkRenderer renderer = chunkObject.AddComponent<ChunkRenderer>();
+        ChunkMeshController renderer = chunkObject.AddComponent<ChunkMeshController>();
         renderer.Initialize(
             neighborhood,
             meshBuilder,
@@ -202,7 +202,7 @@ public sealed class ChunkManager : MonoBehaviour
         {
             chunks.Remove(chunkPos);
 
-            if (renderers.TryGetValue(chunkPos, out ChunkRenderer renderer))
+            if (renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
             {
                 renderers.Remove(chunkPos);
                 Destroy(renderer.gameObject);
@@ -249,7 +249,7 @@ public sealed class ChunkManager : MonoBehaviour
             ChunkPos chunkPos = sortedChunks[i];
             ChunkData chunkData = CreateChunkData(chunkPos);
             chunks.Add(chunkPos, chunkData);
-            CreateChunkRenderer(chunkPos, CreateNeighborhood(chunkPos));
+            CreateChunkMeshController(chunkPos, CreateNeighborhood(chunkPos));
 
             // 새 청크가 들어오면 그 청크와 맞닿은 기존 청크들의 경계 면 판정이 달라질 수 있습니다.
             // 새 청크 자신은 Initialize 안에서 이미 한 번 메시를 만들었으므로, 여기서는 이웃만 다시 보게 합니다.
@@ -278,7 +278,7 @@ public sealed class ChunkManager : MonoBehaviour
     {
         foreach (ChunkPos chunkPos in chunksNeedingRebuild)
         {
-            if (renderers.TryGetValue(chunkPos, out ChunkRenderer renderer))
+            if (renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
             {
                 // 로드/언로드 후에는 이웃 참조 자체가 달라질 수 있으므로 최신 neighborhood를 다시 넣습니다.
                 renderer.UpdateNeighborhood(CreateNeighborhood(chunkPos));
@@ -354,7 +354,7 @@ public sealed class ChunkManager : MonoBehaviour
         int edge = chunkData.Size - 1;
 
         // 경계 voxel이 바뀌면 이웃 청크의 경계 면 노출 여부도 달라집니다.
-        // 그래서 현재 청크는 ChunkRenderer가 직접 재빌드하고, 여기서는 맞닿은 이웃만 추가로 재빌드합니다.
+        // 그래서 현재 청크는 ChunkMeshController가 직접 재빌드하고, 여기서는 맞닿은 이웃만 추가로 재빌드합니다.
         if (editedLocalPos.X == 0)
         {
             RebuildChunk(new ChunkPos(chunkPos.X - 1, chunkPos.Y, chunkPos.Z));
@@ -388,7 +388,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void RebuildChunk(ChunkPos chunkPos)
     {
-        if (renderers.TryGetValue(chunkPos, out ChunkRenderer renderer))
+        if (renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
         {
             renderer.RebuildMesh();
         }

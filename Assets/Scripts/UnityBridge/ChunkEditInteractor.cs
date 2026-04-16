@@ -2,7 +2,7 @@ using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-[RequireComponent(typeof(ChunkRenderer))]
+[RequireComponent(typeof(ChunkMeshController))]
 public sealed class ChunkEditInteractor : MonoBehaviour
 {
     [SerializeField] private Camera editCamera;
