@@ -23,6 +23,12 @@ MonoBehaviour:
   editDistance: 30
   placeVoxelType: 2
   seed: 12345
-  noiseScale: 10
-  baseHeight: 1
-  heightAmplitude: 20
+  noiseScale: 26
+  baseHeight: 5
+  heightAmplitude: 7
+  beachHeight: 4
+  topSoilDepth: 4
+  topSoilDepthVariation: 2
+  caveNoiseScale: 20
+  caveThreshold: 0.8
+  caveSurfaceClearance: 5

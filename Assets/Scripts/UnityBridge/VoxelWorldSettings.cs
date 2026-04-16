@@ -34,9 +34,15 @@ public sealed class VoxelWorldSettings : ScriptableObject
 
     [Header("World Generation")]
     [SerializeField] private int seed = 12345;
-    [SerializeField] private float noiseScale = 10f;
-    [SerializeField] private int baseHeight = 1;
-    [SerializeField] private int heightAmplitude = 20;
+    [SerializeField] private float noiseScale = 26f;
+    [SerializeField] private int baseHeight = 5;
+    [SerializeField] private int heightAmplitude = 7;
+    [SerializeField] private int beachHeight = 4;
+    [SerializeField] private int topSoilDepth = 4;
+    [SerializeField] private int topSoilDepthVariation = 2;
+    [SerializeField] private float caveNoiseScale = 20f;
+    [SerializeField, Range(0f, 1f)] private float caveThreshold = 0.8f;
+    [SerializeField] private int caveSurfaceClearance = 5;
 
     public StreamingMode ActiveStreamingMode => streamingMode;
     public int ViewDistanceInChunks => viewDistanceInChunks;
@@ -52,6 +58,27 @@ public sealed class VoxelWorldSettings : ScriptableObject
     public float NoiseScale => noiseScale;
     public int BaseHeight => baseHeight;
     public int HeightAmplitude => heightAmplitude;
+    public int BeachHeight => beachHeight;
+    public int TopSoilDepth => topSoilDepth;
+    public int TopSoilDepthVariation => topSoilDepthVariation;
+    public float CaveNoiseScale => caveNoiseScale;
+    public float CaveThreshold => caveThreshold;
+    public int CaveSurfaceClearance => caveSurfaceClearance;
+
+    public NoiseWorldGeneratorSettings ToNoiseWorldGeneratorSettings()
+    {
+        return new NoiseWorldGeneratorSettings(
+            seed,
+            noiseScale,
+            baseHeight,
+            heightAmplitude,
+            beachHeight,
+            topSoilDepth,
+            topSoilDepthVariation,
+            caveNoiseScale,
+            caveThreshold,
+            caveSurfaceClearance);
+    }
 
     private void OnValidate()
     {
@@ -63,5 +90,11 @@ public sealed class VoxelWorldSettings : ScriptableObject
         noiseScale = Mathf.Max(0.001f, noiseScale);
         baseHeight = Mathf.Max(0, baseHeight);
         heightAmplitude = Mathf.Max(1, heightAmplitude);
+        beachHeight = Mathf.Max(0, beachHeight);
+        topSoilDepth = Mathf.Max(1, topSoilDepth);
+        topSoilDepthVariation = Mathf.Max(0, topSoilDepthVariation);
+        caveNoiseScale = Mathf.Max(0.001f, caveNoiseScale);
+        caveThreshold = Mathf.Clamp01(caveThreshold);
+        caveSurfaceClearance = Mathf.Max(1, caveSurfaceClearance);
     }
 }

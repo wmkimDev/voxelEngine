@@ -16,6 +16,8 @@ public sealed class ChunkManager : MonoBehaviour
     [SerializeField] private Transform streamingTarget;
     [SerializeField] private VoxelWorldSettings worldSettings;
     [SerializeField] private Camera editCamera;
+    [SerializeField] private bool alignStreamingTargetToSurfaceOnStart = true;
+    [SerializeField] private float spawnHeightPadding = 0.05f;
 
     private readonly Dictionary<ChunkPos, ChunkData> chunks = new();
     private readonly Dictionary<ChunkPos, ChunkMeshController> renderers = new();
@@ -34,9 +36,15 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void Start()
     {
+        if (!EnsureWorldSettingsAssigned())
+        {
+            return;
+        }
+
         VoxelPerformanceStats.Reset();
         meshBuilder = CreateMeshBuilder();
         worldGenerator = CreateWorldGenerator();
+        AlignStreamingTargetToSurface();
         RebuildStreamingPolicy();
         UpdateStreaming(force: true);
     }
@@ -48,16 +56,23 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void OnValidate()
     {
+        spawnHeightPadding = Mathf.Max(0f, spawnHeightPadding);
     }
 
     [ContextMenu("Rebuild Streaming World")]
     private void BuildStreamingWorld()
     {
+        if (!EnsureWorldSettingsAssigned())
+        {
+            return;
+        }
+
         ClearRuntimeChunks();
         chunks.Clear();
         renderers.Clear();
         meshBuilder = CreateMeshBuilder();
         worldGenerator = CreateWorldGenerator();
+        AlignStreamingTargetToSurface();
         RebuildStreamingPolicy();
         currentCenterChunk = null;
         UpdateStreaming(force: true);
@@ -65,11 +80,6 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void RebuildStreamingPolicy()
     {
-        if (worldSettings == null)
-        {
-            return;
-        }
-
         streamingPolicy = worldSettings.ActiveStreamingMode == VoxelWorldSettings.StreamingMode.Radial
             ? new RadialStreamingPolicy(worldSettings.ViewDistanceInChunks, worldSettings.MinLayerY, worldSettings.MaxLayerY)
             : new SquareStreamingPolicy(worldSettings.ViewDistanceInChunks, worldSettings.MinLayerY, worldSettings.MaxLayerY);
@@ -77,11 +87,6 @@ public sealed class ChunkManager : MonoBehaviour
 
     private IMeshBuilder CreateMeshBuilder()
     {
-        if (worldSettings == null)
-        {
-            return new GreedyMeshBuilder();
-        }
-
         return worldSettings.ActiveMeshBuilderMode switch
         {
             VoxelWorldSettings.MeshBuilderMode.Naive => new NaiveMeshBuilder(),
@@ -92,16 +97,19 @@ public sealed class ChunkManager : MonoBehaviour
 
     private IWorldGenerator CreateWorldGenerator()
     {
-        if (worldSettings == null)
+        return new NoiseWorldGenerator(worldSettings.ToNoiseWorldGeneratorSettings());
+    }
+
+    private bool EnsureWorldSettingsAssigned()
+    {
+        if (worldSettings != null)
         {
-            return new NoiseWorldGenerator(12345, 10f, 1, 20);
+            return true;
         }
 
-        return new NoiseWorldGenerator(
-            worldSettings.Seed,
-            worldSettings.NoiseScale,
-            worldSettings.BaseHeight,
-            worldSettings.HeightAmplitude);
+        Debug.LogError("ChunkManager requires a VoxelWorldSettings asset reference.", this);
+        enabled = false;
+        return false;
     }
 
     private void UpdateStreaming(bool force)
@@ -146,6 +154,27 @@ public sealed class ChunkManager : MonoBehaviour
         RebuildChunksNeedingMesh(chunksNeedingRebuild);
     }
 
+    private void AlignStreamingTargetToSurface()
+    {
+        if (!alignStreamingTargetToSurfaceOnStart || worldGenerator == null)
+        {
+            return;
+        }
+
+        Transform target = streamingTarget != null ? streamingTarget : transform;
+        Vector3 targetPosition = target.position;
+        int worldX = Mathf.FloorToInt(targetPosition.x);
+        int worldZ = Mathf.FloorToInt(targetPosition.z);
+        int surfaceHeight = worldGenerator.GetSurfaceHeight(worldX, worldZ);
+
+        // 플레이어/스트리밍 타깃의 위치는 발 위치 기준으로 보고 있으므로,
+        // 표면 voxel의 윗면(surfaceHeight + 1)보다 살짝 위에 시작시킵니다.
+        target.position = new Vector3(
+            targetPosition.x,
+            surfaceHeight + 1f + spawnHeightPadding,
+            targetPosition.z);
+    }
+
     private void CreateChunkMeshController(ChunkPos chunkPos, ChunkNeighborhood neighborhood)
     {
         var chunkObject = new GameObject($"Chunk ({chunkPos.X}, {chunkPos.Y}, {chunkPos.Z})");
@@ -157,15 +186,15 @@ public sealed class ChunkManager : MonoBehaviour
         renderer.Initialize(
             neighborhood,
             meshBuilder,
-            worldSettings != null ? worldSettings.Material : null,
-            worldSettings != null ? worldSettings.VoxelAtlas : null);
+            worldSettings.Material,
+            worldSettings.VoxelAtlas);
 
         ChunkEditInteractor editInteractor = chunkObject.AddComponent<ChunkEditInteractor>();
         editInteractor.Initialize(
             neighborhood.Center,
             editCamera,
-            worldSettings != null ? worldSettings.EditDistance : 30f,
-            worldSettings != null ? worldSettings.PlaceVoxelType : VoxelType.Grass,
+            worldSettings.EditDistance,
+            worldSettings.PlaceVoxelType,
             editedLocalPos => RebuildAffectedNeighborChunksForEdit(chunkPos, editedLocalPos),
             renderer.RebuildMesh);
 
@@ -242,7 +271,7 @@ public sealed class ChunkManager : MonoBehaviour
             chunksToLoad,
             centerChunk,
             visibleChunkPositions);
-        int maxChunkLoadsPerFrame = worldSettings != null ? worldSettings.MaxChunkLoadsPerFrame : 4;
+        int maxChunkLoadsPerFrame = worldSettings.MaxChunkLoadsPerFrame;
         int loadCount = Mathf.Min(maxChunkLoadsPerFrame, sortedChunks.Count);
         lastChunkLoadsPerformed = loadCount;
 

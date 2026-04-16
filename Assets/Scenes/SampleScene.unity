@@ -319,6 +319,8 @@ MonoBehaviour:
   streamingTarget: {fileID: 1500000001}
   worldSettings: {fileID: 11400000, guid: 72ef03f6887b249c2a4e2cdd993ffb63, type: 2}
   editCamera: {fileID: 330585545}
+  alignStreamingTargetToSurfaceOnStart: 1
+  spawnHeightPadding: 0.05
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0

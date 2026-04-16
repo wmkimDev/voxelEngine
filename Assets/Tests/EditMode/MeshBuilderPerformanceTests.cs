@@ -11,6 +11,12 @@ public sealed class MeshBuilderPerformanceTests
     private const float NoiseScale = 10f;
     private const int BaseHeight = 3;
     private const int HeightAmplitude = 8;
+    private const int BeachHeight = 4;
+    private const int TopSoilDepth = 3;
+    private const int TopSoilDepthVariation = 2;
+    private const float CaveNoiseScale = 18f;
+    private const float CaveThreshold = 0.72f;
+    private const int CaveSurfaceClearance = 4;
     private const int WarmupCount = 3;
     private const int MeasurementCount = 10;
     private const int StopwatchSamples = 10;
@@ -125,7 +131,17 @@ public sealed class MeshBuilderPerformanceTests
 
     private static ChunkNeighborhood CreateNoiseTerrainWithNeighbors()
     {
-        var generator = new NoiseWorldGenerator(Seed, NoiseScale, BaseHeight, HeightAmplitude);
+        var generator = new NoiseWorldGenerator(new NoiseWorldGeneratorSettings(
+            Seed,
+            NoiseScale,
+            BaseHeight,
+            HeightAmplitude,
+            BeachHeight,
+            TopSoilDepth,
+            TopSoilDepthVariation,
+            CaveNoiseScale,
+            CaveThreshold,
+            CaveSurfaceClearance));
         var center = GenerateChunk(generator, new ChunkPos(0, 0, 0));
 
         // 실제 스트리밍에서는 옆 청크가 존재하므로, 벤치마크도 6방향 이웃을 함께 넘깁니다.
