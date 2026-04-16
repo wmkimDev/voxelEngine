@@ -13,11 +13,11 @@ MonoBehaviour:
   m_Name: VoxelWorldSettings
   m_EditorClassIdentifier: VoxelEngine.UnityBridge::VoxelWorldSettings
   streamingMode: 1
-  viewDistanceInChunks: 2
+  viewDistanceInChunks: 8
   minLayerY: 0
   maxLayerY: 0
-  maxChunkLoadsPerFrame: 4
-  meshBuilderMode: 1
+  maxChunkLoadsPerFrame: 1
+  meshBuilderMode: 2
   material: {fileID: 2100000, guid: 72c9ab1d241f149249ef92f2b5184cd0, type: 2}
   voxelAtlas: {fileID: 2800000, guid: f5b65f01b0c9403984a57d1d77d9c3a6, type: 3}
   editDistance: 30

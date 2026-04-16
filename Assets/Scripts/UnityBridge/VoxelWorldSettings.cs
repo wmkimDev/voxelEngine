@@ -6,7 +6,8 @@ public sealed class VoxelWorldSettings : ScriptableObject
     public enum MeshBuilderMode
     {
         Naive,
-        Greedy
+        Greedy,
+        JobNaive
     }
 
     public enum StreamingMode

@@ -82,9 +82,12 @@ public sealed class ChunkManager : MonoBehaviour
             return new GreedyMeshBuilder();
         }
 
-        return worldSettings.ActiveMeshBuilderMode == VoxelWorldSettings.MeshBuilderMode.Greedy
-            ? new GreedyMeshBuilder()
-            : new NaiveMeshBuilder();
+        return worldSettings.ActiveMeshBuilderMode switch
+        {
+            VoxelWorldSettings.MeshBuilderMode.Naive => new NaiveMeshBuilder(),
+            VoxelWorldSettings.MeshBuilderMode.JobNaive => new JobSystemMeshBuilder(),
+            _ => new GreedyMeshBuilder(),
+        };
     }
 
     private IWorldGenerator CreateWorldGenerator()

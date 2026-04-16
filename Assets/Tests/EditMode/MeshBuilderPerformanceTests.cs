@@ -15,18 +15,24 @@ public sealed class MeshBuilderPerformanceTests
     private const int MeasurementCount = 10;
     private const int StopwatchSamples = 10;
 
+    // 같은 노이즈 입력에서 Naive 메셔의 기준 성능을 측정합니다.
+    // 이후 Greedy나 Job 기반 구현과 비교할 때 출발점이 되는 테스트입니다.
     [Test, Performance]
     public void Naive_BuildNoiseTerrainWithNeighbors()
     {
         RunBenchmark("Naive", new NaiveMeshBuilder());
     }
 
+    // 같은 노이즈 입력에서 Greedy 메셔의 성능을 측정합니다.
+    // 면 병합이 실제로 얼마나 비용과 메시 크기를 줄이는지 비교할 때 사용합니다.
     [Test, Performance]
     public void Greedy_BuildNoiseTerrainWithNeighbors()
     {
         RunBenchmark("Greedy", new GreedyMeshBuilder());
     }
 
+    // Greedy 메셔가 같은 지형에서 Naive보다 적은 쿼드를 만드는지 검증합니다.
+    // 성능 자체보다 "면 병합이 실제로 일어났는가"를 확인하는 정확성 테스트입니다.
     [Test]
     public void Greedy_ReducesQuadCountOnNoiseTerrain()
     {
@@ -42,6 +48,8 @@ public sealed class MeshBuilderPerformanceTests
             $"naive quads {naive.Quads} | greedy quads {greedy.Quads} | reduced {reduction:F1}%");
     }
 
+    // 공용 FaceTopology 테이블의 winding 순서가 저장된 normal 방향과 일치하는지 검증합니다.
+    // face 규칙이 뒤집히면 Naive/Greedy/Job 메셔가 모두 잘못될 수 있으므로 별도로 막아둡니다.
     [Test]
     public void FaceTopology_WindingMatchesStoredNormals()
     {
@@ -67,6 +75,8 @@ public sealed class MeshBuilderPerformanceTests
         }
     }
 
+    // Greedy가 실제로 만든 삼각형의 winding이 각 정점 normal과 같은 방향을 보는지 확인합니다.
+    // 화면에서 면이 투명하게 보이거나 한쪽에서만 보이는 회귀를 잡기 위한 테스트입니다.
     [Test]
     public void Greedy_TriangleWindingMatchesNormals()
     {
