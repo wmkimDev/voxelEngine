@@ -40,13 +40,29 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
         float sampleX = (worldX + (Seed * 37.13f)) / settings.NoiseScale;
         float sampleZ = (worldZ + (Seed * 91.71f)) / settings.NoiseScale;
 
-        // 첫 번째 노이즈는 큰 언덕, 두 번째 노이즈는 작은 굴곡입니다.
-        // 엔진 노이즈 함수 대신 순수 C# 값 노이즈를 써서 Core가 독립적으로 컴파일되게 합니다.
+        // 첫 번째/두 번째 노이즈는 현재 위치의 완만한 평지와 잔굴곡을 만듭니다.
+        // 가까이서는 비교적 부드러운 평지로 보이고, 아래의 산맥 마스크가 켜지는 지역에서만
+        // 큰 봉우리들이 멀리 솟아오르도록 레이어를 나눕니다.
         float broadNoise = ValueNoise(sampleX, sampleZ);
         float detailNoise = ValueNoise(sampleX * 2.5f + 17.3f, sampleZ * 2.5f + 42.7f);
-        float combinedNoise = (broadNoise * 0.75f) + (detailNoise * 0.25f);
+        float rollingNoise = (broadNoise * 0.75f) + (detailNoise * 0.25f);
 
-        return settings.BaseHeight + (int)Math.Floor((combinedNoise * settings.HeightAmplitude) + 0.5f);
+        // 평지 영역은 높이 변화를 일부 눌러서, 마인크래프트처럼 가까운 곳은 비교적 걸어 다니기 쉬운
+        // 언덕/초원 감각을 유지합니다.
+        float rollingHeight = settings.HeightAmplitude * ((rollingNoise * 0.55f) + 0.15f);
+
+        // 아주 저주파 노이즈로 "산맥이 나타나는 지역"을 먼저 정합니다.
+        // 이 값이 낮은 곳은 평지 위주, 높은 곳은 큰 산이 솟는 지역이 됩니다.
+        float mountainRegionNoise = ValueNoise((sampleX * 0.18f) - 73.1f, (sampleZ * 0.18f) + 41.7f);
+        float mountainRegion = Clamp01((mountainRegionNoise - 0.52f) / 0.48f);
+        mountainRegion *= mountainRegion;
+
+        // 산맥 지역 안에서는 ridged noise로 뾰족한 산 능선을 만듭니다.
+        float mountainShapeNoise = ValueNoise((sampleX * 0.75f) + 89.4f, (sampleZ * 0.75f) + 12.6f);
+        float mountainRidgedNoise = 1f - Math.Abs((mountainShapeNoise * 2f) - 1f);
+        float mountainHeight = mountainRegion * mountainRidgedNoise * settings.HeightAmplitude * 1.6f;
+
+        return settings.BaseHeight + (int)Math.Floor(rollingHeight + mountainHeight + 0.5f);
     }
 
     private byte GetVoxelType(int worldX, int worldY, int worldZ, int surfaceHeight)
@@ -190,5 +206,10 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
     private static float Lerp(float a, float b, float t)
     {
         return a + ((b - a) * t);
+    }
+
+    private static float Clamp01(float value)
+    {
+        return Math.Max(0f, Math.Min(1f, value));
     }
 }

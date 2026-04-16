@@ -61,6 +61,42 @@ public sealed class NoiseWorldGeneratorTests
         Assert.That(chunk.GetVoxel(new LocalPos(0, surfaceY - 4, 0)), Is.EqualTo(VoxelType.Air));
     }
 
+    // 가까운 평지 위에 멀리 큰 산맥이 드러나게 하려면, 장거리 샘플링 시 높이 편차가 충분히 커야 합니다.
+    [Test]
+    public void GetSurfaceHeight_ProducesBroadMountainRanges()
+    {
+        var generator = new NoiseWorldGenerator(new NoiseWorldGeneratorSettings(
+            seed: 12345,
+            noiseScale: 26f,
+            baseHeight: 18,
+            heightAmplitude: 38,
+            beachHeight: 4,
+            topSoilDepth: 4,
+            topSoilDepthVariation: 2,
+            caveNoiseScale: 20f,
+            caveThreshold: 0.8f,
+            caveSurfaceClearance: 5));
+
+        int minHeight = int.MaxValue;
+        int maxHeight = int.MinValue;
+
+        for (int x = 0; x <= 2048; x += 32)
+        {
+            int sampledHeight = generator.GetSurfaceHeight(x, 512);
+            if (sampledHeight < minHeight)
+            {
+                minHeight = sampledHeight;
+            }
+
+            if (sampledHeight > maxHeight)
+            {
+                maxHeight = sampledHeight;
+            }
+        }
+
+        Assert.That(maxHeight - minHeight, Is.GreaterThanOrEqualTo(20));
+    }
+
     private static int FindSurfaceY(ChunkData chunk, int x, int z)
     {
         for (int y = chunk.Size - 1; y >= 0; y--)

@@ -13,22 +13,25 @@ MonoBehaviour:
   m_Name: VoxelWorldSettings
   m_EditorClassIdentifier: VoxelEngine.UnityBridge::VoxelWorldSettings
   streamingMode: 1
-  viewDistanceInChunks: 8
+  viewDistanceInChunks: 12
+  unloadDistanceInChunks: 14
+  colliderDistanceInChunks: 2
+  cachedChunkCount: 2048
   minLayerY: 0
-  maxLayerY: 0
-  maxChunkLoadsPerFrame: 1
-  meshBuilderMode: 2
+  maxLayerY: 5
+  maxChunkLoadsPerFrame: 2
+  meshBuilderMode: 3
   material: {fileID: 2100000, guid: 72c9ab1d241f149249ef92f2b5184cd0, type: 2}
   voxelAtlas: {fileID: 2800000, guid: f5b65f01b0c9403984a57d1d77d9c3a6, type: 3}
   editDistance: 30
   placeVoxelType: 2
   seed: 12345
-  noiseScale: 26
-  baseHeight: 5
-  heightAmplitude: 7
-  beachHeight: 4
+  noiseScale: 34
+  baseHeight: 18
+  heightAmplitude: 32
+  beachHeight: 5
   topSoilDepth: 4
   topSoilDepthVariation: 2
-  caveNoiseScale: 20
-  caveThreshold: 0.8
-  caveSurfaceClearance: 5
+  caveNoiseScale: 24
+  caveThreshold: 0.84
+  caveSurfaceClearance: 6
