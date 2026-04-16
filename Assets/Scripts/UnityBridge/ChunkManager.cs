@@ -237,7 +237,11 @@ public sealed class ChunkManager : MonoBehaviour
             }
         }
 
-        List<ChunkPos> sortedChunks = loadScheduler.SortByDistance(chunksToLoad, centerChunk);
+        HashSet<ChunkPos> visibleChunkPositions = GetVisibleChunkPositions(chunksToLoad);
+        List<ChunkPos> sortedChunks = loadScheduler.SortByVisibilityAndDistance(
+            chunksToLoad,
+            centerChunk,
+            visibleChunkPositions);
         int maxChunkLoadsPerFrame = worldSettings != null ? worldSettings.MaxChunkLoadsPerFrame : 4;
         int loadCount = Mathf.Min(maxChunkLoadsPerFrame, sortedChunks.Count);
         lastChunkLoadsPerformed = loadCount;
@@ -255,6 +259,42 @@ public sealed class ChunkManager : MonoBehaviour
             // 새 청크 자신은 Initialize 안에서 이미 한 번 메시를 만들었으므로, 여기서는 이웃만 다시 보게 합니다.
             AddAdjacentChunkPositions(chunkPos, chunksNeedingRebuild);
         }
+    }
+
+    private HashSet<ChunkPos> GetVisibleChunkPositions(IReadOnlyCollection<ChunkPos> chunkPositions)
+    {
+        // "지금 로드 후보인 청크들 중 카메라 시야 안에 들어오는 청크"만 골라냅니다.
+        // 스트리밍 정책이 "무엇이 필요한가"를 정한다면, 이 메서드는 그중 "무엇을 먼저 만들까"에 쓰일 가시 청크 집합을 만듭니다.
+        Camera cameraToUse = editCamera != null ? editCamera : Camera.main;
+        if (cameraToUse == null || chunkPositions.Count == 0)
+        {
+            return null;
+        }
+
+        // 카메라 시야를 이루는 6개 평면(좌/우/상/하/근/원)을 구합니다.
+        Plane[] frustumPlanes = GeometryUtility.CalculateFrustumPlanes(cameraToUse);
+        var visibleChunks = new HashSet<ChunkPos>();
+        int chunkSize = ChunkData.DefaultSize;
+
+        foreach (ChunkPos chunkPos in chunkPositions)
+        {
+            // 청크 하나를 "정육면체 경계 상자 하나"로 보고 프러스텀과 겹치는지 검사합니다.
+            // 청크 원점은 좌하단 모서리이므로, 중심점은 청크 크기의 절반만큼 더한 위치입니다.
+            WorldPos origin = chunkPos.ToWorldOrigin(chunkSize);
+            Vector3 chunkCenter = new Vector3(
+                origin.X + (chunkSize * 0.5f),
+                origin.Y + (chunkSize * 0.5f),
+                origin.Z + (chunkSize * 0.5f));
+            Bounds chunkBounds = new Bounds(chunkCenter, Vector3.one * chunkSize);
+
+            // 경계 상자가 카메라 프러스텀과 겹치면 "지금 화면에 보이거나 곧 보일 가능성이 높은 청크"로 간주합니다.
+            if (GeometryUtility.TestPlanesAABB(frustumPlanes, chunkBounds))
+            {
+                visibleChunks.Add(chunkPos);
+            }
+        }
+
+        return visibleChunks;
     }
 
     private void CollectChunksNeedingRebuildForUnload(
