@@ -2,7 +2,7 @@ using System;
 
 public sealed class ChunkData : IChunkDataStore
 {
-    public const int DefaultSize = 8;
+    public const int DefaultSize = 16;
 
     private readonly byte[] voxels;
 

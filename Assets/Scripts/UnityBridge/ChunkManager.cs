@@ -3,27 +3,9 @@ using UnityEngine;
 
 public sealed class ChunkManager : MonoBehaviour
 {
-    private enum MeshBuilderMode
-    {
-        Naive,
-        Greedy
-    }
-
     [SerializeField] private Transform streamingTarget;
-    [SerializeField] private MeshBuilderMode meshBuilderMode = MeshBuilderMode.Greedy;
-    [SerializeField] private int viewDistanceInChunks = 1;
-    [SerializeField] private int minLayerY = 0;
-    [SerializeField] private int maxLayerY = 0;
-    [SerializeField] private int maxChunkLoadsPerFrame = 4;
-    [SerializeField] private Material material;
-    [SerializeField] private Texture2D voxelAtlas;
+    [SerializeField] private VoxelWorldSettings worldSettings;
     [SerializeField] private Camera editCamera;
-    [SerializeField] private float editDistance = 30f;
-    [SerializeField] private byte placeVoxelType = VoxelType.Grass;
-    [SerializeField] private int seed = 12345;
-    [SerializeField] private float noiseScale = 18f;
-    [SerializeField] private int baseHeight = 2;
-    [SerializeField] private int heightAmplitude = 5;
 
     private readonly Dictionary<ChunkPos, ChunkData> chunks = new();
     private readonly Dictionary<ChunkPos, ChunkRenderer> renderers = new();
@@ -36,13 +18,15 @@ public sealed class ChunkManager : MonoBehaviour
 
     public int LoadedChunkCount => chunks.Count;
     public int LastChunkLoadsPerformed => lastChunkLoadsPerformed;
-    public string ActiveMeshBuilderName => meshBuilderMode.ToString();
+    public string ActiveMeshBuilderName => worldSettings != null
+        ? worldSettings.ActiveMeshBuilderMode.ToString()
+        : "Missing Settings";
 
     private void Start()
     {
         VoxelPerformanceStats.Reset();
         meshBuilder = CreateMeshBuilder();
-        worldGenerator = new NoiseWorldGenerator(seed, noiseScale, baseHeight, heightAmplitude);
+        worldGenerator = CreateWorldGenerator();
         RebuildStreamingPolicy();
         UpdateStreaming(force: true);
     }
@@ -54,14 +38,6 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void OnValidate()
     {
-        viewDistanceInChunks = Mathf.Max(0, viewDistanceInChunks);
-        maxLayerY = Mathf.Max(minLayerY, maxLayerY);
-        maxChunkLoadsPerFrame = Mathf.Max(1, maxChunkLoadsPerFrame);
-        editDistance = Mathf.Max(0.1f, editDistance);
-        placeVoxelType = (byte)Mathf.Clamp(placeVoxelType, VoxelType.Dirt, VoxelType.Sand);
-        noiseScale = Mathf.Max(0.001f, noiseScale);
-        baseHeight = Mathf.Max(0, baseHeight);
-        heightAmplitude = Mathf.Max(1, heightAmplitude);
     }
 
     [ContextMenu("Rebuild Streaming World")]
@@ -71,7 +47,7 @@ public sealed class ChunkManager : MonoBehaviour
         chunks.Clear();
         renderers.Clear();
         meshBuilder = CreateMeshBuilder();
-        worldGenerator = new NoiseWorldGenerator(seed, noiseScale, baseHeight, heightAmplitude);
+        worldGenerator = CreateWorldGenerator();
         RebuildStreamingPolicy();
         currentCenterChunk = null;
         UpdateStreaming(force: true);
@@ -79,14 +55,40 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void RebuildStreamingPolicy()
     {
-        streamingPolicy = new SquareStreamingPolicy(viewDistanceInChunks, minLayerY, maxLayerY);
+        if (worldSettings == null)
+        {
+            return;
+        }
+
+        streamingPolicy = worldSettings.ActiveStreamingMode == VoxelWorldSettings.StreamingMode.Radial
+            ? new RadialStreamingPolicy(worldSettings.ViewDistanceInChunks, worldSettings.MinLayerY, worldSettings.MaxLayerY)
+            : new SquareStreamingPolicy(worldSettings.ViewDistanceInChunks, worldSettings.MinLayerY, worldSettings.MaxLayerY);
     }
 
     private IMeshBuilder CreateMeshBuilder()
     {
-        return meshBuilderMode == MeshBuilderMode.Greedy
+        if (worldSettings == null)
+        {
+            return new GreedyMeshBuilder();
+        }
+
+        return worldSettings.ActiveMeshBuilderMode == VoxelWorldSettings.MeshBuilderMode.Greedy
             ? new GreedyMeshBuilder()
             : new NaiveMeshBuilder();
+    }
+
+    private IWorldGenerator CreateWorldGenerator()
+    {
+        if (worldSettings == null)
+        {
+            return new NoiseWorldGenerator(12345, 10f, 1, 20);
+        }
+
+        return new NoiseWorldGenerator(
+            worldSettings.Seed,
+            worldSettings.NoiseScale,
+            worldSettings.BaseHeight,
+            worldSettings.HeightAmplitude);
     }
 
     private void UpdateStreaming(bool force)
@@ -95,7 +97,7 @@ public sealed class ChunkManager : MonoBehaviour
 
         if (worldGenerator == null)
         {
-            worldGenerator = new NoiseWorldGenerator(seed, noiseScale, baseHeight, heightAmplitude);
+            worldGenerator = CreateWorldGenerator();
         }
 
         if (streamingPolicy == null)
@@ -141,10 +143,10 @@ public sealed class ChunkManager : MonoBehaviour
             neighborhood,
             meshBuilder,
             editCamera,
-            material,
-            voxelAtlas,
-            placeVoxelType,
-            editDistance,
+            worldSettings != null ? worldSettings.Material : null,
+            worldSettings != null ? worldSettings.VoxelAtlas : null,
+            worldSettings != null ? worldSettings.PlaceVoxelType : VoxelType.Grass,
+            worldSettings != null ? worldSettings.EditDistance : 30f,
             editedLocalPos => RebuildNeighborsTouchedByEdit(chunkPos, editedLocalPos));
 
         renderers.Add(chunkPos, renderer);
@@ -213,6 +215,7 @@ public sealed class ChunkManager : MonoBehaviour
         }
 
         List<ChunkPos> sortedChunks = loadScheduler.SortByDistance(chunksToLoad, centerChunk);
+        int maxChunkLoadsPerFrame = worldSettings != null ? worldSettings.MaxChunkLoadsPerFrame : 4;
         int loadCount = Mathf.Min(maxChunkLoadsPerFrame, sortedChunks.Count);
         lastChunkLoadsPerformed = loadCount;
 
