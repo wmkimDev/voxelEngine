@@ -3,6 +3,7 @@
     "rootNamespace": "",
     "references": [
         "VoxelEngine.Core",
+        "Unity.Burst",
         "Unity.Collections",
         "Unity.InputSystem",
         "Unity.Jobs",

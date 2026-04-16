@@ -1,4 +1,5 @@
 using System;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 
@@ -27,6 +28,7 @@ public sealed class JobSystemMeshBuilder : IMeshBuilder, IDisposable
         bufferPool.Dispose();
     }
 
+    [BurstCompile]
     private struct BuildNaiveMeshJob : IJob
     {
         public NativeChunkNeighborhood Neighborhood;
