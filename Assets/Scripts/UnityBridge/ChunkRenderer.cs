@@ -39,17 +39,6 @@ public sealed class ChunkRenderer : MonoBehaviour
     private readonly List<Vector2> unityUvs = new();
     private readonly MeshBuildState meshBuildState = new();
 
-    [ContextMenu("Reset Demo Chunk")]
-    private void ResetDemoChunk()
-    {
-        chunkData = new ChunkData();
-        FillHardcodedChunk(chunkData);
-        neighborhood = new ChunkNeighborhood(chunkData, null, null, null, null, null, null);
-        voxelEdited = null;
-        RebuildMesh();
-        EnsureMaterial();
-    }
-
     public void Initialize(
         ChunkNeighborhood chunkNeighborhood,
         IMeshBuilder builder,
@@ -78,14 +67,6 @@ public sealed class ChunkRenderer : MonoBehaviour
     {
         neighborhood = chunkNeighborhood;
         chunkData = chunkNeighborhood.Center;
-    }
-
-    private void Start()
-    {
-        if (chunkData == null)
-        {
-            ResetDemoChunk();
-        }
     }
 
     private void Update()
@@ -135,60 +116,6 @@ public sealed class ChunkRenderer : MonoBehaviour
             else
             {
                 DestroyImmediate(generatedMesh);
-            }
-        }
-    }
-
-    private void FillHardcodedChunk(IChunkDataStore data)
-    {
-        // 먼저 y 높이에 따라 다른 voxel 타입으로 채웁니다.
-        // 같은 byte 배열 안에서도 1은 Dirt, 2는 Grass, 3은 Stone처럼 의미를 나눌 수 있습니다.
-        for (int z = 0; z < data.Size; z++)
-        {
-            for (int y = 0; y < data.Size; y++)
-            {
-                for (int x = 0; x < data.Size; x++)
-                {
-                    data.SetVoxel(new LocalPos(x, y, z), GetVoxelTypeForHeight(y, data.Size));
-                }
-            }
-        }
-
-        // 가운데를 파내서 빈 공간을 만듭니다.
-        // 이 내부 공간과 맞닿는 voxel의 면은 화면에 보여야 합니다.
-        for (int z = 2; z <= 5; z++)
-        {
-            for (int y = 2; y <= 5; y++)
-            {
-                for (int x = 2; x <= 5; x++)
-                {
-                    data.SetVoxel(new LocalPos(x, y, z), VoxelType.Air);
-                }
-            }
-        }
-
-        // 앞쪽으로 작은 터널을 뚫습니다.
-        // Scene 뷰에서 내부 면과 외부 면을 함께 확인하기 쉽게 하기 위함입니다.
-        for (int z = 0; z <= 2; z++)
-        {
-            for (int y = 2; y <= 4; y++)
-            {
-                for (int x = 3; x <= 4; x++)
-                {
-                    data.SetVoxel(new LocalPos(x, y, z), VoxelType.Air);
-                }
-            }
-        }
-
-        // 한쪽 모서리에 Sand voxel을 넣어 타입이 추가되어도 같은 메시 생성 로직을 쓰는지 확인합니다.
-        for (int z = 5; z <= 7; z++)
-        {
-            for (int y = 1; y <= 3; y++)
-            {
-                for (int x = 0; x <= 2; x++)
-                {
-                    data.SetVoxel(new LocalPos(x, y, z), VoxelType.Sand);
-                }
             }
         }
     }
@@ -434,18 +361,4 @@ public sealed class ChunkRenderer : MonoBehaviour
         return chunkData != null && chunkData.IsInsideChunk(localPos);
     }
 
-    private static byte GetVoxelTypeForHeight(int y, int chunkSize)
-    {
-        if (y == chunkSize - 1)
-        {
-            return VoxelType.Grass;
-        }
-
-        if (y <= 1)
-        {
-            return VoxelType.Stone;
-        }
-
-        return VoxelType.Dirt;
-    }
 }
