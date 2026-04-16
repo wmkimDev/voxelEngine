@@ -1,26 +1,26 @@
 using System.Collections.Generic;
+using UnityEngine;
 
 // 청크 콜라이더를 어떤 범위까지 유지할지 결정하는 정책입니다.
-// 지금은 단순 거리 기반이지만, 나중에 시야/플레이어 높이/물리 범위 조건이 붙어도
-// ChunkManager 대신 이 클래스만 바꾸면 되도록 분리합니다.
+// 플레이어가 속한 중심 청크 기준으로 반경 N 청크 안은 collider를 켜고,
+// 그 밖은 끄는 단순한 격자 정책을 씁니다.
 public sealed class ChunkColliderPolicy
 {
     public void ApplyUsage(ChunkPos centerChunk, int colliderRadiusInChunks, IReadOnlyDictionary<ChunkPos, ChunkMeshController> renderers)
     {
-        int colliderRadiusSquared = colliderRadiusInChunks * colliderRadiusInChunks;
-
         foreach ((ChunkPos chunkPos, ChunkMeshController controller) in renderers)
         {
-            bool shouldUseCollider = GetDistanceSquared(chunkPos, centerChunk) <= colliderRadiusSquared;
+            bool shouldUseCollider = ShouldUseCollider(controller.IsColliderActive, centerChunk, chunkPos, colliderRadiusInChunks);
             controller.SetColliderUsage(shouldUseCollider);
         }
     }
 
-    private static int GetDistanceSquared(ChunkPos a, ChunkPos b)
+    private static bool ShouldUseCollider(bool isCurrentlyActive, ChunkPos centerChunk, ChunkPos chunkPos, int colliderRadiusInChunks)
     {
-        int dx = a.X - b.X;
-        int dy = a.Y - b.Y;
-        int dz = a.Z - b.Z;
-        return (dx * dx) + (dy * dy) + (dz * dz);
+        int dx = Mathf.Abs(chunkPos.X - centerChunk.X);
+        int dy = Mathf.Abs(chunkPos.Y - centerChunk.Y);
+        int dz = Mathf.Abs(chunkPos.Z - centerChunk.Z);
+        int gridDistance = Mathf.Max(dx, Mathf.Max(dy, dz));
+        return gridDistance <= colliderRadiusInChunks;
     }
 }

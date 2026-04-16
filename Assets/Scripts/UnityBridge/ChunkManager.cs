@@ -53,16 +53,28 @@ public sealed class ChunkManager : MonoBehaviour
         AlignStreamingTargetToSurface();
         RebuildStreamingPolicy();
         UpdateStreaming(force: true);
+        UpdateColliderUsage();
     }
 
     private void Update()
     {
+        UpdateColliderUsage();
         UpdateStreaming(force: false);
     }
 
     private void OnValidate()
     {
         spawnHeightPadding = Mathf.Max(0f, spawnHeightPadding);
+    }
+
+    private void OnDrawGizmos()
+    {
+        if (worldSettings == null || !Application.isPlaying)
+        {
+            return;
+        }
+
+        DrawColliderDebugGizmos();
     }
 
     [ContextMenu("Rebuild Streaming World")]
@@ -87,6 +99,7 @@ public sealed class ChunkManager : MonoBehaviour
         RebuildStreamingPolicy();
         currentCenterChunk = null;
         UpdateStreaming(force: true);
+        UpdateColliderUsage();
     }
 
     private void RebuildStreamingPolicy()
@@ -181,8 +194,40 @@ public sealed class ChunkManager : MonoBehaviour
         CollectChunksNeedingRebuildForUnload(unloadProtectedChunks, chunksNeedingRebuild);
         UnloadMissingChunks(unloadProtectedChunks);
         LoadRequiredChunks(requiredChunks, targetChunk, chunksNeedingRebuild);
-        chunkColliderPolicy.ApplyUsage(targetChunk, worldSettings.ColliderDistanceInChunks, renderers);
         RebuildChunksNeedingMesh(chunksNeedingRebuild);
+    }
+
+    private void UpdateColliderUsage()
+    {
+        if (worldSettings == null || renderers.Count == 0)
+        {
+            return;
+        }
+
+        ChunkPos centerChunk = GetStreamingCenterChunk();
+        chunkColliderPolicy.ApplyUsage(centerChunk, worldSettings.ColliderDistanceInChunks, renderers);
+    }
+
+    private void DrawColliderDebugGizmos()
+    {
+        int chunkSize = ChunkData.DefaultSize;
+        foreach ((ChunkPos chunkPos, ChunkMeshController controller) in renderers)
+        {
+            if (!controller.IsColliderActive)
+            {
+                continue;
+            }
+
+            WorldPos origin = chunkPos.ToWorldOrigin(chunkSize);
+            Vector3 chunkCenter = new Vector3(
+                origin.X + (chunkSize * 0.5f),
+                origin.Y + (chunkSize * 0.5f),
+                origin.Z + (chunkSize * 0.5f));
+
+            Vector3 size = Vector3.one * (chunkSize * 0.9f);
+            Gizmos.color = new Color(0.1f, 1f, 0.25f, 0.55f);
+            Gizmos.DrawWireCube(chunkCenter, size);
+        }
     }
 
     private void AlignStreamingTargetToSurface()
@@ -234,13 +279,15 @@ public sealed class ChunkManager : MonoBehaviour
 
     private ChunkPos GetStreamingCenterChunk()
     {
-        Transform target = streamingTarget != null ? streamingTarget : transform;
-
-        // 월드 좌표를 바로 청크 좌표로 바꿉니다.
-        // 음수 좌표에서도 올바르게 동작해야 하므로 WorldPos 내부의 floor div/floor mod 규칙을 사용합니다.
-        Vector3 targetPosition = target.position;
+        Vector3 targetPosition = GetStreamingTargetPosition();
         WorldPos worldPos = WorldPos.FromFloatsFloor(targetPosition.x, targetPosition.y, targetPosition.z);
         return worldPos.ToChunkPos(ChunkData.DefaultSize);
+    }
+
+    private Vector3 GetStreamingTargetPosition()
+    {
+        Transform target = streamingTarget != null ? streamingTarget : transform;
+        return target.position;
     }
 
     private void UnloadMissingChunks(IReadOnlyCollection<ChunkPos> requiredChunks)

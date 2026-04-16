@@ -14,6 +14,17 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
     private bool shouldUseCollider = true;
     private bool hasRenderableMesh;
 
+    public bool IsColliderActive
+    {
+        get
+        {
+            MeshCollider meshCollider = GetComponent<MeshCollider>();
+            return meshCollider != null && meshCollider.enabled;
+        }
+    }
+
+    public bool HasRenderableMesh => hasRenderableMesh;
+
     public void Initialize(Material sharedMaterial, Texture2D atlas)
     {
         material = sharedMaterial;

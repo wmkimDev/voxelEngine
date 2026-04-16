@@ -26,6 +26,9 @@ public sealed class ChunkMeshController : MonoBehaviour
     private ChunkMeshPresenter meshPresenter;
     private readonly MeshBuildState meshBuildState = new();
 
+    public bool IsColliderActive => GetMeshPresenter().IsColliderActive;
+    public bool HasRenderableMesh => GetMeshPresenter().HasRenderableMesh;
+
     public void Initialize(
         ChunkNeighborhood chunkNeighborhood,
         IMeshBuilder builder,
