@@ -157,12 +157,17 @@ public sealed class ChunkManager : MonoBehaviour
         renderer.Initialize(
             neighborhood,
             meshBuilder,
-            editCamera,
             worldSettings != null ? worldSettings.Material : null,
-            worldSettings != null ? worldSettings.VoxelAtlas : null,
-            worldSettings != null ? worldSettings.PlaceVoxelType : VoxelType.Grass,
+            worldSettings != null ? worldSettings.VoxelAtlas : null);
+
+        ChunkEditInteractor editInteractor = chunkObject.AddComponent<ChunkEditInteractor>();
+        editInteractor.Initialize(
+            neighborhood.Center,
+            editCamera,
             worldSettings != null ? worldSettings.EditDistance : 30f,
-            editedLocalPos => RebuildAffectedNeighborChunksForEdit(chunkPos, editedLocalPos));
+            worldSettings != null ? worldSettings.PlaceVoxelType : VoxelType.Grass,
+            editedLocalPos => RebuildAffectedNeighborChunksForEdit(chunkPos, editedLocalPos),
+            renderer.RebuildMesh);
 
         renderers.Add(chunkPos, renderer);
     }
