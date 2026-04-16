@@ -25,18 +25,24 @@ public sealed class JobSystemMeshBuilder : IMeshBuilder
 
         var job = new BuildNaiveMeshJob
         {
-            Size = size,
-            Center = center,
-            PositiveX = positiveX,
-            NegativeX = negativeX,
-            PositiveY = positiveY,
-            NegativeY = negativeY,
-            PositiveZ = positiveZ,
-            NegativeZ = negativeZ,
-            Vertices = vertices,
-            Triangles = triangles,
-            Normals = normals,
-            Uvs = uvs,
+            Neighborhood = new NativeChunkNeighborhood
+            {
+                Size = size,
+                Center = center,
+                PositiveX = positiveX,
+                NegativeX = negativeX,
+                PositiveY = positiveY,
+                NegativeY = negativeY,
+                PositiveZ = positiveZ,
+                NegativeZ = negativeZ,
+            },
+            Writer = new NativeQuadWriter
+            {
+                Vertices = vertices,
+                Triangles = triangles,
+                Normals = normals,
+                Uvs = uvs,
+            },
         };
 
         // 여기서는 "계산을 워커 스레드로 예약"만 합니다.
@@ -91,33 +97,21 @@ public sealed class JobSystemMeshBuilder : IMeshBuilder
 
     private struct BuildNaiveMeshJob : IJob
     {
-        public int Size;
-
-        [ReadOnly] public NativeArray<byte> Center;
-        [ReadOnly] public NativeArray<byte> PositiveX;
-        [ReadOnly] public NativeArray<byte> NegativeX;
-        [ReadOnly] public NativeArray<byte> PositiveY;
-        [ReadOnly] public NativeArray<byte> NegativeY;
-        [ReadOnly] public NativeArray<byte> PositiveZ;
-        [ReadOnly] public NativeArray<byte> NegativeZ;
-
-        public NativeList<Vec3> Vertices;
-        public NativeList<int> Triangles;
-        public NativeList<Vec3> Normals;
-        public NativeList<Vec2> Uvs;
+        public NativeChunkNeighborhood Neighborhood;
+        public NativeQuadWriter Writer;
 
         public void Execute()
         {
             // 알고리즘 자체는 NaiveMeshBuilder와 같습니다.
             // 차이는 메인 스레드가 아니라 Job 워커 스레드에서 돈다는 점입니다.
-            for (int z = 0; z < Size; z++)
+            for (int z = 0; z < Neighborhood.Size; z++)
             {
-                for (int y = 0; y < Size; y++)
+                for (int y = 0; y < Neighborhood.Size; y++)
                 {
-                    for (int x = 0; x < Size; x++)
+                    for (int x = 0; x < Neighborhood.Size; x++)
                     {
                         var localPos = new LocalPos(x, y, z);
-                        byte voxelType = GetVoxel(Center, localPos);
+                        byte voxelType = Neighborhood.GetVoxel(localPos);
                         if (voxelType == VoxelType.Air)
                         {
                             continue;
@@ -134,109 +128,16 @@ public sealed class JobSystemMeshBuilder : IMeshBuilder
                                 y + (int)normal.Y,
                                 z + (int)normal.Z);
 
-                            if (GetNeighborhoodVoxel(neighborPos) != VoxelType.Air)
+                            if (Neighborhood.GetVoxel(neighborPos) != VoxelType.Air)
                             {
                                 continue;
                             }
 
-                            AddFace(direction, voxelType, voxelLocalPosition);
+                            Writer.Write(direction, voxelType, voxelLocalPosition);
                         }
                     }
                 }
             }
-        }
-
-        private byte GetNeighborhoodVoxel(LocalPos pos)
-        {
-            if (IsInside(pos))
-            {
-                return GetVoxel(Center, pos);
-            }
-
-            if (pos.X < 0 && IsInRange(pos.Y) && IsInRange(pos.Z))
-            {
-                return GetVoxel(NegativeX, new LocalPos(Size - 1, pos.Y, pos.Z));
-            }
-
-            if (pos.X >= Size && IsInRange(pos.Y) && IsInRange(pos.Z))
-            {
-                return GetVoxel(PositiveX, new LocalPos(0, pos.Y, pos.Z));
-            }
-
-            if (pos.Y < 0 && IsInRange(pos.X) && IsInRange(pos.Z))
-            {
-                return GetVoxel(NegativeY, new LocalPos(pos.X, Size - 1, pos.Z));
-            }
-
-            if (pos.Y >= Size && IsInRange(pos.X) && IsInRange(pos.Z))
-            {
-                return GetVoxel(PositiveY, new LocalPos(pos.X, 0, pos.Z));
-            }
-
-            if (pos.Z < 0 && IsInRange(pos.X) && IsInRange(pos.Y))
-            {
-                return GetVoxel(NegativeZ, new LocalPos(pos.X, pos.Y, Size - 1));
-            }
-
-            if (pos.Z >= Size && IsInRange(pos.X) && IsInRange(pos.Y))
-            {
-                return GetVoxel(PositiveZ, new LocalPos(pos.X, pos.Y, 0));
-            }
-
-            return VoxelType.Air;
-        }
-
-        private void AddFace(FaceDirection direction, byte voxelType, Vec3 voxelLocalPosition)
-        {
-            int startIndex = Vertices.Length;
-            Vec3 normal = FaceTopology.GetNormal(direction);
-
-            // Core의 QuadMeshWriter가 하던 일을 Job 친화적인 NativeList 쓰기 형태로 옮긴 버전입니다.
-            AddVertex(voxelType, normal, voxelLocalPosition + FaceTopology.GetUnitQuadCorner(direction, 0), 0);
-            AddVertex(voxelType, normal, voxelLocalPosition + FaceTopology.GetUnitQuadCorner(direction, 1), 1);
-            AddVertex(voxelType, normal, voxelLocalPosition + FaceTopology.GetUnitQuadCorner(direction, 2), 2);
-            AddVertex(voxelType, normal, voxelLocalPosition + FaceTopology.GetUnitQuadCorner(direction, 3), 3);
-
-            Triangles.Add(startIndex + 0);
-            Triangles.Add(startIndex + 1);
-            Triangles.Add(startIndex + 2);
-            Triangles.Add(startIndex + 0);
-            Triangles.Add(startIndex + 2);
-            Triangles.Add(startIndex + 3);
-        }
-
-        private void AddVertex(byte voxelType, Vec3 normal, Vec3 position, int uvIndex)
-        {
-            Vertices.Add(position);
-            Normals.Add(normal);
-            Uvs.Add(MeshBuilderUv.GetAtlasUv(voxelType, GetFaceUv(uvIndex)));
-        }
-
-        private byte GetVoxel(NativeArray<byte> voxels, LocalPos pos)
-        {
-            int index = pos.X + (pos.Y * Size) + (pos.Z * Size * Size);
-            return voxels[index];
-        }
-
-        private bool IsInside(LocalPos pos)
-        {
-            return IsInRange(pos.X) && IsInRange(pos.Y) && IsInRange(pos.Z);
-        }
-
-        private bool IsInRange(int value)
-        {
-            return value >= 0 && value < Size;
-        }
-
-        private static Vec2 GetFaceUv(int uvIndex)
-        {
-            return uvIndex switch
-            {
-                0 => new Vec2(0, 0),
-                1 => new Vec2(0, 1),
-                2 => new Vec2(1, 1),
-                _ => new Vec2(1, 0),
-            };
         }
     }
 }
