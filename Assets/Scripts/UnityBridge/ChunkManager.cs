@@ -26,14 +26,20 @@ public sealed class ChunkManager : MonoBehaviour
     private readonly ChunkLoadScheduler loadScheduler = new();
     private readonly ChunkStreamingPriorityEvaluator streamingPriorityEvaluator = new();
     private readonly ChunkColliderPolicy chunkColliderPolicy = new();
+    private readonly HashSet<ChunkPos> pendingRebuildChunks = new();
+    private readonly List<ChunkPos> rebuildQueueSnapshot = new();
     private IWorldGenerator worldGenerator;
     private IChunkStreamingPolicy loadStreamingPolicy;
     private IChunkStreamingPolicy unloadStreamingPolicy;
     private ChunkPos? currentCenterChunk;
     private int lastChunkLoadsPerformed;
+    private int lastChunkRebuildsPerformed;
 
     public int LoadedChunkCount => chunks.Count;
     public int LastChunkLoadsPerformed => lastChunkLoadsPerformed;
+    public int LastChunkRebuildsPerformed => lastChunkRebuildsPerformed;
+    public Vector3 StreamingTargetPosition => GetStreamingTargetPosition();
+    public ChunkPos StreamingTargetChunk => GetStreamingCenterChunk();
     public string ActiveMeshBuilderName => worldSettings != null
         ? worldSettings.ActiveMeshBuilderMode.ToString()
         : "Missing Settings";
@@ -53,13 +59,15 @@ public sealed class ChunkManager : MonoBehaviour
         AlignStreamingTargetToSurface();
         RebuildStreamingPolicy();
         UpdateStreaming(force: true);
+        ProcessPendingRebuilds();
         UpdateColliderUsage();
     }
 
     private void Update()
     {
-        UpdateColliderUsage();
         UpdateStreaming(force: false);
+        ProcessPendingRebuilds();
+        UpdateColliderUsage();
     }
 
     private void OnValidate()
@@ -99,6 +107,7 @@ public sealed class ChunkManager : MonoBehaviour
         RebuildStreamingPolicy();
         currentCenterChunk = null;
         UpdateStreaming(force: true);
+        ProcessPendingRebuilds();
         UpdateColliderUsage();
     }
 
@@ -194,7 +203,7 @@ public sealed class ChunkManager : MonoBehaviour
         CollectChunksNeedingRebuildForUnload(unloadProtectedChunks, chunksNeedingRebuild);
         UnloadMissingChunks(unloadProtectedChunks);
         LoadRequiredChunks(requiredChunks, targetChunk, chunksNeedingRebuild);
-        RebuildChunksNeedingMesh(chunksNeedingRebuild);
+        QueueChunksNeedingMesh(chunksNeedingRebuild);
     }
 
     private void UpdateColliderUsage()
@@ -213,7 +222,7 @@ public sealed class ChunkManager : MonoBehaviour
         int chunkSize = ChunkData.DefaultSize;
         foreach ((ChunkPos chunkPos, ChunkMeshController controller) in renderers)
         {
-            if (!controller.IsColliderActive)
+            if (!controller.HasActiveColliderMesh)
             {
                 continue;
             }
@@ -271,8 +280,7 @@ public sealed class ChunkManager : MonoBehaviour
             editCamera,
             worldSettings.EditDistance,
             worldSettings.PlaceVoxelType,
-            editedLocalPos => RebuildAffectedNeighborChunksForEdit(chunkPos, editedLocalPos),
-            renderer.RebuildMesh);
+            editedLocalPos => QueueAffectedChunksForEdit(chunkPos, editedLocalPos));
 
         renderers.Add(chunkPos, renderer);
     }
@@ -395,17 +403,45 @@ public sealed class ChunkManager : MonoBehaviour
         }
     }
 
-    private void RebuildChunksNeedingMesh(HashSet<ChunkPos> chunksNeedingRebuild)
+    private void QueueChunksNeedingMesh(HashSet<ChunkPos> chunksNeedingRebuild)
     {
         foreach (ChunkPos chunkPos in chunksNeedingRebuild)
         {
-            if (renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
-            {
-                // 로드/언로드 후에는 이웃 참조 자체가 달라질 수 있으므로 최신 neighborhood를 다시 넣습니다.
-                renderer.UpdateNeighborhood(CreateNeighborhood(chunkPos));
-                renderer.RebuildMesh();
-            }
+            pendingRebuildChunks.Add(chunkPos);
         }
+    }
+
+    private void ProcessPendingRebuilds()
+    {
+        lastChunkRebuildsPerformed = 0;
+        if (pendingRebuildChunks.Count == 0)
+        {
+            return;
+        }
+
+        rebuildQueueSnapshot.Clear();
+        foreach (ChunkPos chunkPos in pendingRebuildChunks)
+        {
+            rebuildQueueSnapshot.Add(chunkPos);
+        }
+
+        pendingRebuildChunks.Clear();
+
+        foreach (ChunkPos chunkPos in rebuildQueueSnapshot)
+        {
+            if (!renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
+            {
+                continue;
+            }
+
+            // 재빌드 큐에 들어있는 동안 이웃 구성이 바뀌었을 수 있으므로,
+            // 실제 RebuildMesh 직전에 최신 neighborhood를 다시 연결합니다.
+            renderer.UpdateNeighborhood(CreateNeighborhood(chunkPos));
+            renderer.RebuildMesh();
+            lastChunkRebuildsPerformed++;
+        }
+
+        rebuildQueueSnapshot.Clear();
     }
 
     private ChunkData CreateChunkData(ChunkPos chunkPos)
@@ -475,7 +511,7 @@ public sealed class ChunkManager : MonoBehaviour
         }
     }
 
-    private void RebuildAffectedNeighborChunksForEdit(ChunkPos chunkPos, LocalPos editedLocalPos)
+    private void QueueAffectedChunksForEdit(ChunkPos chunkPos, LocalPos editedLocalPos)
     {
         ChunkData chunkData = GetChunk(chunkPos);
         if (chunkData == null)
@@ -485,44 +521,47 @@ public sealed class ChunkManager : MonoBehaviour
 
         int edge = chunkData.Size - 1;
 
+        // 편집된 현재 청크도 즉시 재빌드하지 않고 큐에 넣어 한 프레임에 한 번만 처리합니다.
+        QueueChunkRebuild(chunkPos);
+
         // 경계 voxel이 바뀌면 이웃 청크의 경계 면 노출 여부도 달라집니다.
-        // 그래서 현재 청크는 ChunkMeshController가 직접 재빌드하고, 여기서는 맞닿은 이웃만 추가로 재빌드합니다.
+        // 그래서 경계에 닿았을 때는 맞닿은 이웃도 함께 큐에 넣습니다.
         if (editedLocalPos.X == 0)
         {
-            RebuildChunk(new ChunkPos(chunkPos.X - 1, chunkPos.Y, chunkPos.Z));
+            QueueChunkRebuild(new ChunkPos(chunkPos.X - 1, chunkPos.Y, chunkPos.Z));
         }
 
         if (editedLocalPos.X == edge)
         {
-            RebuildChunk(new ChunkPos(chunkPos.X + 1, chunkPos.Y, chunkPos.Z));
+            QueueChunkRebuild(new ChunkPos(chunkPos.X + 1, chunkPos.Y, chunkPos.Z));
         }
 
         if (editedLocalPos.Y == 0)
         {
-            RebuildChunk(new ChunkPos(chunkPos.X, chunkPos.Y - 1, chunkPos.Z));
+            QueueChunkRebuild(new ChunkPos(chunkPos.X, chunkPos.Y - 1, chunkPos.Z));
         }
 
         if (editedLocalPos.Y == edge)
         {
-            RebuildChunk(new ChunkPos(chunkPos.X, chunkPos.Y + 1, chunkPos.Z));
+            QueueChunkRebuild(new ChunkPos(chunkPos.X, chunkPos.Y + 1, chunkPos.Z));
         }
 
         if (editedLocalPos.Z == 0)
         {
-            RebuildChunk(new ChunkPos(chunkPos.X, chunkPos.Y, chunkPos.Z - 1));
+            QueueChunkRebuild(new ChunkPos(chunkPos.X, chunkPos.Y, chunkPos.Z - 1));
         }
 
         if (editedLocalPos.Z == edge)
         {
-            RebuildChunk(new ChunkPos(chunkPos.X, chunkPos.Y, chunkPos.Z + 1));
+            QueueChunkRebuild(new ChunkPos(chunkPos.X, chunkPos.Y, chunkPos.Z + 1));
         }
     }
 
-    private void RebuildChunk(ChunkPos chunkPos)
+    private void QueueChunkRebuild(ChunkPos chunkPos)
     {
-        if (renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
+        if (renderers.ContainsKey(chunkPos))
         {
-            renderer.RebuildMesh();
+            pendingRebuildChunks.Add(chunkPos);
         }
     }
 

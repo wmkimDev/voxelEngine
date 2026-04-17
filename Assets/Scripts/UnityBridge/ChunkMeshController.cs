@@ -1,5 +1,7 @@
-using System.Diagnostics;
 using UnityEngine;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+using System.Diagnostics;
+#endif
 
 [RequireComponent(typeof(ChunkMeshPresenter))]
 public sealed class ChunkMeshController : MonoBehaviour
@@ -16,8 +18,10 @@ public sealed class ChunkMeshController : MonoBehaviour
         // 현재 작업이 끝난 직후 최신 neighborhood로 한 번 더 Schedule하기 위해 씁니다.
         public bool RebuildRequestedWhilePending;
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         // 메시 재빌드 시간을 측정해 HUD 통계에 기록하기 위한 스톱워치입니다.
         public readonly Stopwatch Stopwatch = new();
+#endif
     }
 
     private IMeshBuilder meshBuilder = new NaiveMeshBuilder();
@@ -27,6 +31,7 @@ public sealed class ChunkMeshController : MonoBehaviour
     private readonly MeshBuildState meshBuildState = new();
 
     public bool IsColliderActive => GetMeshPresenter().IsColliderActive;
+    public bool HasActiveColliderMesh => GetMeshPresenter().HasActiveColliderMesh;
     public bool HasRenderableMesh => GetMeshPresenter().HasRenderableMesh;
 
     public void Initialize(
@@ -97,11 +102,11 @@ public sealed class ChunkMeshController : MonoBehaviour
         // 에디터/비플레이 상태에서는 즉시 결과를 적용해 인스펙터와 씬 뷰 반응성을 유지합니다.
         if (!Application.isPlaying)
         {
-            meshBuildState.Stopwatch.Restart();
+            BeginMeshBuildTiming();
             IMeshBuildHandle immediateHandle = meshBuilder.Schedule(neighborhood);
             ChunkMeshData immediateMeshData = immediateHandle.Complete();
-            meshBuildState.Stopwatch.Stop();
-            GetMeshPresenter().ApplyMeshData(immediateMeshData, meshBuildState.Stopwatch.Elapsed.TotalMilliseconds);
+            double rebuildMilliseconds = EndMeshBuildTiming();
+            GetMeshPresenter().ApplyMeshData(immediateMeshData, rebuildMilliseconds);
             return;
         }
 
@@ -122,7 +127,7 @@ public sealed class ChunkMeshController : MonoBehaviour
 
     private void ScheduleMeshBuild()
     {
-        meshBuildState.Stopwatch.Restart();
+        BeginMeshBuildTiming();
         meshBuildState.PendingHandle = meshBuilder.Schedule(neighborhood);
     }
 
@@ -130,9 +135,9 @@ public sealed class ChunkMeshController : MonoBehaviour
     {
         ChunkMeshData meshData = meshBuildState.PendingHandle.Complete();
         meshBuildState.PendingHandle = null;
-        meshBuildState.Stopwatch.Stop();
+        double rebuildMilliseconds = EndMeshBuildTiming();
 
-        GetMeshPresenter().ApplyMeshData(meshData, meshBuildState.Stopwatch.Elapsed.TotalMilliseconds);
+        GetMeshPresenter().ApplyMeshData(meshData, rebuildMilliseconds);
 
         if (meshBuildState.RebuildRequestedWhilePending)
         {
@@ -149,5 +154,23 @@ public sealed class ChunkMeshController : MonoBehaviour
         }
 
         return meshPresenter;
+    }
+
+    [System.Diagnostics.Conditional("UNITY_EDITOR"), System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
+    private void BeginMeshBuildTiming()
+    {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        meshBuildState.Stopwatch.Restart();
+#endif
+    }
+
+    private double EndMeshBuildTiming()
+    {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        meshBuildState.Stopwatch.Stop();
+        return meshBuildState.Stopwatch.Elapsed.TotalMilliseconds;
+#else
+        return 0d;
+#endif
     }
 }

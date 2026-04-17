@@ -10,8 +10,10 @@ public static class VoxelPerformanceStats
 
     private static int sampleCount;
 
+    [System.Diagnostics.Conditional("UNITY_EDITOR"), System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
     public static void RecordMeshRebuild(double rebuildMilliseconds, ChunkMeshData meshData)
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         LastMeshRebuildMilliseconds = rebuildMilliseconds;
         LastVertexCount = meshData.Vertices.Count;
         LastTriangleCount = meshData.Triangles.Count / 3;
@@ -26,15 +28,19 @@ public static class VoxelPerformanceStats
 
         AverageMeshRebuildMilliseconds +=
             (rebuildMilliseconds - AverageMeshRebuildMilliseconds) / sampleCount;
+#endif
     }
 
+    [System.Diagnostics.Conditional("UNITY_EDITOR"), System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
     public static void Reset()
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         LastMeshRebuildMilliseconds = 0d;
         AverageMeshRebuildMilliseconds = 0d;
         LastVertexCount = 0;
         LastTriangleCount = 0;
         LastQuadCount = 0;
         sampleCount = 0;
+#endif
     }
 }

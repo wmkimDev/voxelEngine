@@ -68,6 +68,18 @@ public sealed class VoxelPerformanceHud : MonoBehaviour
         builder.Append("Mesh Builder: ").Append(chunkManager.ActiveMeshBuilderName).AppendLine();
         builder.Append("Loaded Chunks: ").Append(chunkManager.LoadedChunkCount).AppendLine();
         builder.Append("Chunk Loads / Update: ").Append(chunkManager.LastChunkLoadsPerformed).AppendLine();
+        builder.Append("Chunk Rebuilds / Update: ").Append(chunkManager.LastChunkRebuildsPerformed).AppendLine();
+        Vector3 playerPosition = chunkManager.StreamingTargetPosition;
+        ChunkPos playerChunk = chunkManager.StreamingTargetChunk;
+        builder.Append("Player Position: (")
+            .Append(playerPosition.x.ToString("F2")).Append(", ")
+            .Append(playerPosition.y.ToString("F2")).Append(", ")
+            .Append(playerPosition.z.ToString("F2")).AppendLine(")");
+        builder.Append("Player Chunk: (")
+            .Append(playerChunk.X).Append(", ")
+            .Append(playerChunk.Y).Append(", ")
+            .Append(playerChunk.Z).AppendLine(")");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         builder.Append("Last Mesh Rebuild: ")
             .Append(VoxelPerformanceStats.LastMeshRebuildMilliseconds.ToString("F3"))
             .AppendLine(" ms");
@@ -77,6 +89,9 @@ public sealed class VoxelPerformanceHud : MonoBehaviour
         builder.Append("Last Vertices: ").Append(VoxelPerformanceStats.LastVertexCount).AppendLine();
         builder.Append("Last Triangles: ").Append(VoxelPerformanceStats.LastTriangleCount).AppendLine();
         builder.Append("Last Quads: ").Append(VoxelPerformanceStats.LastQuadCount).AppendLine();
+#else
+        builder.AppendLine("Diagnostics: disabled");
+#endif
 
         statsText.text = builder.ToString();
     }

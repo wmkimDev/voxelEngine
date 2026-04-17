@@ -11,17 +11,16 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
     private readonly List<Vector3> unityVertices = new();
     private readonly List<Vector3> unityNormals = new();
     private readonly List<Vector2> unityUvs = new();
-    private bool shouldUseCollider = true;
+    private bool shouldUseCollider = false;
     private bool hasRenderableMesh;
+    private MeshFilter cachedMeshFilter;
+    private MeshRenderer cachedMeshRenderer;
+    private MeshCollider cachedMeshCollider;
 
-    public bool IsColliderActive
-    {
-        get
-        {
-            MeshCollider meshCollider = GetComponent<MeshCollider>();
-            return meshCollider != null && meshCollider.enabled;
-        }
-    }
+    public bool IsColliderActive => cachedMeshCollider != null && cachedMeshCollider.enabled;
+    public bool HasActiveColliderMesh => cachedMeshCollider != null
+        && cachedMeshCollider.enabled
+        && cachedMeshCollider.sharedMesh != null;
 
     public bool HasRenderableMesh => hasRenderableMesh;
 
@@ -29,6 +28,7 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
     {
         material = sharedMaterial;
         voxelAtlas = atlas;
+        CacheComponents();
         EnsureMaterial();
     }
 
@@ -52,9 +52,10 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
 
         ConvertMeshData(meshData);
 
-        MeshFilter meshFilter = GetComponent<MeshFilter>();
-        MeshRenderer meshRenderer = GetComponent<MeshRenderer>();
-        MeshCollider meshCollider = GetComponent<MeshCollider>();
+        CacheComponents();
+        MeshFilter meshFilter = cachedMeshFilter;
+        MeshRenderer meshRenderer = cachedMeshRenderer;
+        MeshCollider meshCollider = cachedMeshCollider;
 
         if (meshData.Vertices.Count == 0)
         {
@@ -87,13 +88,19 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
 
     public void SetColliderUsage(bool shouldEnableCollider)
     {
+        if (shouldUseCollider == shouldEnableCollider && ColliderStateMatchesRequest(shouldEnableCollider))
+        {
+            return;
+        }
+
         shouldUseCollider = shouldEnableCollider;
-        RefreshColliderState(GetComponent<MeshCollider>());
+        RefreshColliderState(cachedMeshCollider);
     }
 
     public void EnsureMaterial()
     {
-        MeshRenderer meshRenderer = GetComponent<MeshRenderer>();
+        CacheComponents();
+        MeshRenderer meshRenderer = cachedMeshRenderer;
 
         if (material == null)
         {
@@ -177,16 +184,33 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
         }
     }
 
-    private MeshCollider GetOrCreateMeshCollider()
+    private void CacheComponents()
     {
-        MeshCollider meshCollider = GetComponent<MeshCollider>();
-        if (meshCollider == null)
+        if (cachedMeshFilter == null)
         {
-            // 빈 청크에는 붙이지 않고, 실제 메시가 생긴 시점에만 충돌체를 추가합니다.
-            meshCollider = gameObject.AddComponent<MeshCollider>();
+            cachedMeshFilter = GetComponent<MeshFilter>();
         }
 
-        return meshCollider;
+        if (cachedMeshRenderer == null)
+        {
+            cachedMeshRenderer = GetComponent<MeshRenderer>();
+        }
+
+        if (cachedMeshCollider == null)
+        {
+            cachedMeshCollider = GetComponent<MeshCollider>();
+        }
+    }
+
+    private MeshCollider GetOrCreateMeshCollider()
+    {
+        if (cachedMeshCollider == null)
+        {
+            // 빈 청크에는 붙이지 않고, 실제 메시가 생긴 시점에만 충돌체를 추가합니다.
+            cachedMeshCollider = gameObject.AddComponent<MeshCollider>();
+        }
+
+        return cachedMeshCollider;
     }
 
     private void RefreshColliderState(MeshCollider meshCollider)
@@ -241,5 +265,21 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
         {
             DestroyImmediate(meshCollider);
         }
+
+        cachedMeshCollider = null;
+    }
+
+    private bool ColliderStateMatchesRequest(bool shouldEnableCollider)
+    {
+        if (!shouldEnableCollider)
+        {
+            return cachedMeshCollider == null || !cachedMeshCollider.enabled;
+        }
+
+        return hasRenderableMesh
+            && generatedMesh != null
+            && cachedMeshCollider != null
+            && cachedMeshCollider.enabled
+            && cachedMeshCollider.sharedMesh == generatedMesh;
     }
 }

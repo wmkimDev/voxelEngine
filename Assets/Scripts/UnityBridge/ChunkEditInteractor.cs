@@ -11,22 +11,19 @@ public sealed class ChunkEditInteractor : MonoBehaviour
 
     private IChunkDataStore chunkData;
     private Action<LocalPos> voxelEdited;
-    private Action rebuildMesh;
 
     public void Initialize(
         IChunkDataStore data,
         Camera camera,
         float maxEditDistance,
         byte voxelTypeToPlace,
-        Action<LocalPos> onVoxelEdited,
-        Action onRebuildMesh)
+        Action<LocalPos> onVoxelEdited)
     {
         chunkData = data;
         editCamera = camera;
         editDistance = Mathf.Max(0.1f, maxEditDistance);
         placeVoxelType = (byte)Mathf.Clamp(voxelTypeToPlace, VoxelType.Dirt, VoxelType.Sand);
         voxelEdited = onVoxelEdited;
-        rebuildMesh = onRebuildMesh;
     }
 
     public void SetChunkData(IChunkDataStore data)
@@ -104,10 +101,6 @@ public sealed class ChunkEditInteractor : MonoBehaviour
         }
 
         chunkData.SetVoxel(localPos, nextValue);
-
-        // 지금은 가장 단순하게 전체 메시를 다시 만듭니다.
-        // voxel 하나만 바꿔도 전체 청크 메시와 collider를 다시 만드는 비용이 발생합니다.
-        rebuildMesh?.Invoke();
         voxelEdited?.Invoke(localPos);
     }
 
