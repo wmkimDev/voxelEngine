@@ -43,6 +43,7 @@ public sealed class ChunkManager : MonoBehaviour
     private readonly HashSet<ChunkPos> cachedUnloadProtectedChunks = new();
     private readonly HashSet<ChunkPos> activeUnloadProtectedChunks = new();
     private readonly List<ChunkPos> removedUnloadProtectedChunks = new();
+    private int cachedMissingRequiredChunkCount;
 
     // 새 청크의 첫 메싱과 기존 청크 재빌드를 예산 안에서 처리하는 큐입니다.
     private readonly ChunkMeshBuildQueue meshBuildQueue = new();
@@ -144,6 +145,7 @@ public sealed class ChunkManager : MonoBehaviour
         cachedStreamingCenterChunk = null;
         cachedRequiredChunks.Clear();
         cachedUnloadProtectedChunks.Clear();
+        cachedMissingRequiredChunkCount = 0;
     }
 
     private IChunkStreamingPolicy CreateStreamingPolicy(int horizontalRadius)
@@ -223,6 +225,7 @@ public sealed class ChunkManager : MonoBehaviour
             loadStreamingPolicy.CollectRequiredChunks(targetChunk, cachedRequiredChunks);
             unloadStreamingPolicy.CollectRequiredChunks(targetChunk, cachedUnloadProtectedChunks);
             cachedStreamingCenterChunk = targetChunk;
+            RecountMissingRequiredChunks();
         }
 
         // 필요한 청크가 9개여도 한 프레임에는 maxChunkLoadsPerFrame개만 만듭니다.
@@ -230,7 +233,7 @@ public sealed class ChunkManager : MonoBehaviour
         // 다음 프레임에도 스트리밍 갱신을 계속해야 합니다.
         // currentCenterChunk가 null이면 아직 비교할 이전 중심 청크가 없다는 뜻입니다.
         // 하지만 실제로 계속 로드할지 여부는 아래 hasMissingChunks가 판단합니다.
-        bool hasMissingChunks = HasMissingChunks(cachedRequiredChunks);
+        bool hasMissingChunks = HasMissingChunks();
 
         if (!force && !centerChanged && !hasMissingChunks)
         {
@@ -441,6 +444,10 @@ public sealed class ChunkManager : MonoBehaviour
             }
 
             chunks.Remove(chunkPos);
+            if (cachedRequiredChunks.Contains(chunkPos))
+            {
+                cachedMissingRequiredChunkCount++;
+            }
 
             if (renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
             {
@@ -452,17 +459,11 @@ public sealed class ChunkManager : MonoBehaviour
         }
     }
 
-    private bool HasMissingChunks(IReadOnlyCollection<ChunkPos> requiredChunks)
+    // 현재 "반드시 로드돼 있어야 하는 청크 집합"에 아직 비어 있는 항목이 있는지 확인합니다.
+    // required 집합이 바뀔 때만 누락 개수를 다시 세고, 평소 프레임에는 그 캐시된 개수만 조회합니다.
+    private bool HasMissingChunks()
     {
-        foreach (ChunkPos chunkPos in requiredChunks)
-        {
-            if (!chunks.ContainsKey(chunkPos))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return cachedMissingRequiredChunkCount > 0;
     }
 
     private void LoadRequiredChunks(
@@ -489,6 +490,11 @@ public sealed class ChunkManager : MonoBehaviour
             ChunkPos chunkPos = loadPlan[i];
             ChunkData chunkData = CreateChunkData(chunkPos);
             chunks.Add(chunkPos, chunkData);
+            if (cachedRequiredChunks.Contains(chunkPos) && cachedMissingRequiredChunkCount > 0)
+            {
+                cachedMissingRequiredChunkCount--;
+            }
+
             CreateChunkMeshController(chunkPos, CreateNeighborhood(chunkPos));
             QueueChunkInitialBuild(chunkPos);
 
@@ -576,10 +582,25 @@ public sealed class ChunkManager : MonoBehaviour
         return data;
     }
 
+    private void RecountMissingRequiredChunks()
+    {
+        int missingCount = 0;
+        foreach (ChunkPos chunkPos in cachedRequiredChunks)
+        {
+            if (!chunks.ContainsKey(chunkPos))
+            {
+                missingCount++;
+            }
+        }
+
+        cachedMissingRequiredChunkCount = missingCount;
+    }
+
     private void ClearRuntimeChunks()
     {
         meshBuildQueue.Clear();
         chunkControllerPool?.Clear();
+        cachedMissingRequiredChunkCount = 0;
         for (int i = transform.childCount - 1; i >= 0; i--)
         {
             Transform child = transform.GetChild(i);

@@ -26,8 +26,19 @@ public sealed class JobSystemMeshBuildHandle : IMeshBuildHandle
 
     public ChunkMeshData Complete()
     {
+        return Complete(null);
+    }
+
+    public ChunkMeshData Complete(ChunkMeshData reusableMeshData)
+    {
         if (hasCompleted)
         {
+            if (reusableMeshData != null && !ReferenceEquals(reusableMeshData, completedMeshData))
+            {
+                reusableMeshData.CopyFrom(completedMeshData);
+                return reusableMeshData;
+            }
+
             return completedMeshData;
         }
 
@@ -35,7 +46,13 @@ public sealed class JobSystemMeshBuildHandle : IMeshBuildHandle
 
         // Job이 만든 NativeList 결과를 기존 렌더 경로가 그대로 쓸 수 있도록
         // Core의 ChunkMeshData로 한 번 옮겨 담습니다.
-        var meshData = new ChunkMeshData();
+        ChunkMeshData meshData = reusableMeshData ?? new ChunkMeshData();
+        meshData.ResetAndEnsureCapacity(
+            buffers.Vertices.Length,
+            buffers.Triangles.Length,
+            buffers.Normals.Length,
+            buffers.Uvs.Length);
+
         for (int i = 0; i < buffers.Vertices.Length; i++)
         {
             meshData.Vertices.Add(buffers.Vertices[i]);

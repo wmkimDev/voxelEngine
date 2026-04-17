@@ -18,6 +18,9 @@ public sealed class ChunkMeshController : MonoBehaviour
         // 현재 작업이 끝난 직후 최신 neighborhood로 한 번 더 Schedule하기 위해 씁니다.
         public bool RebuildRequestedWhilePending;
 
+        // Job 완료 결과를 매번 새 ChunkMeshData로 만들지 않고 재사용하는 버퍼입니다.
+        public readonly ChunkMeshData ReusableMeshData = new();
+
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         // 메시 재빌드 시간을 측정해 HUD 통계에 기록하기 위한 스톱워치입니다.
         public readonly Stopwatch Stopwatch = new();
@@ -167,7 +170,10 @@ public sealed class ChunkMeshController : MonoBehaviour
 
     private void CompletePendingMeshBuild()
     {
-        ChunkMeshData meshData = meshBuildState.PendingHandle.Complete();
+        ChunkMeshData meshData = meshBuildState.PendingHandle is JobSystemMeshBuildHandle jobHandle
+            ? jobHandle.Complete(meshBuildState.ReusableMeshData)
+            : meshBuildState.PendingHandle.Complete();
+
         meshBuildState.PendingHandle = null;
         double rebuildMilliseconds = EndMeshBuildTiming();
 

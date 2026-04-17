@@ -190,6 +190,21 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
         unityNormals.Clear();
         unityUvs.Clear();
 
+        if (unityVertices.Capacity < meshData.Vertices.Count)
+        {
+            unityVertices.Capacity = meshData.Vertices.Count;
+        }
+
+        if (unityNormals.Capacity < meshData.Normals.Count)
+        {
+            unityNormals.Capacity = meshData.Normals.Count;
+        }
+
+        if (unityUvs.Capacity < meshData.Uvs.Count)
+        {
+            unityUvs.Capacity = meshData.Uvs.Count;
+        }
+
         // Core의 메시 데이터는 Unity를 모르는 Vec2/Vec3입니다.
         // UnityBridge에서만 UnityEngine.Vector2/Vector3로 바꿔 Mesh API에 넘깁니다.
         foreach (Vec3 vertex in meshData.Vertices)
