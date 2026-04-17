@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Pool;
 
 public sealed class ChunkManager : MonoBehaviour
 {
@@ -53,6 +54,7 @@ public sealed class ChunkManager : MonoBehaviour
     private readonly HashSet<ChunkPos> visibleChunkPositionsBuffer = new();
     private readonly Dictionary<ChunkPos, float> screenPriorityScoresBuffer = new();
     private readonly HashSet<ChunkPos> currentUnloadProtectedChunkSetBuffer = new();
+    private ObjectPool<ChunkMeshController> chunkControllerPool;
 
     public int LoadedChunkCount => chunks.Count;
     public Vector3 StreamingTargetPosition => GetStreamingTargetPosition();
@@ -63,6 +65,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void Awake()
     {
+        EnsureChunkControllerPool();
         EnsureEditController();
     }
 
@@ -312,24 +315,88 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void CreateChunkMeshController(ChunkPos chunkPos, ChunkNeighborhood neighborhood)
     {
-        var chunkObject = new GameObject($"Chunk ({chunkPos.X}, {chunkPos.Y}, {chunkPos.Z})");
+        ChunkMeshController renderer = AcquireChunkMeshController();
+        GameObject chunkObject = renderer.gameObject;
+        chunkObject.name = $"Chunk ({chunkPos.X}, {chunkPos.Y}, {chunkPos.Z})";
         chunkObject.transform.SetParent(transform, worldPositionStays: false);
         WorldPos chunkOrigin = chunkPos.ToWorldOrigin(neighborhood.Size);
         chunkObject.transform.localPosition = new Vector3(chunkOrigin.X, chunkOrigin.Y, chunkOrigin.Z);
 
-        ChunkMeshController renderer = chunkObject.AddComponent<ChunkMeshController>();
         renderer.Initialize(
             neighborhood,
             meshBuilder,
             worldSettings.Material,
             worldSettings.VoxelAtlas);
 
-        ChunkEditInteractor editInteractor = chunkObject.AddComponent<ChunkEditInteractor>();
+        ChunkEditInteractor editInteractor = chunkObject.GetComponent<ChunkEditInteractor>();
         editInteractor.Initialize(
             neighborhood.Center,
             editedLocalPos => QueueAffectedChunksForEdit(chunkPos, editedLocalPos));
 
         renderers.Add(chunkPos, renderer);
+    }
+
+    private ChunkMeshController AcquireChunkMeshController()
+    {
+        EnsureChunkControllerPool();
+        return chunkControllerPool.Get();
+    }
+
+    private void ReleaseChunkMeshController(ChunkMeshController renderer)
+    {
+        renderer.ReleaseForPooling();
+        chunkControllerPool.Release(renderer);
+    }
+
+    private void EnsureChunkControllerPool()
+    {
+        if (chunkControllerPool != null)
+        {
+            return;
+        }
+
+        chunkControllerPool = new ObjectPool<ChunkMeshController>(
+            CreatePooledChunkMeshController,
+            OnTakeChunkMeshControllerFromPool,
+            OnReturnChunkMeshControllerToPool,
+            OnDestroyPooledChunkMeshController,
+            collectionCheck: false,
+            defaultCapacity: 32,
+            maxSize: 8192);
+    }
+
+    private ChunkMeshController CreatePooledChunkMeshController()
+    {
+        var chunkObject = new GameObject("Pooled Chunk");
+        chunkObject.transform.SetParent(transform, worldPositionStays: false);
+        ChunkMeshController renderer = chunkObject.AddComponent<ChunkMeshController>();
+        chunkObject.AddComponent<ChunkEditInteractor>();
+        chunkObject.SetActive(false);
+        return renderer;
+    }
+
+    private static void OnTakeChunkMeshControllerFromPool(ChunkMeshController renderer)
+    {
+        if (renderer != null)
+        {
+            renderer.gameObject.SetActive(true);
+        }
+    }
+
+    private static void OnReturnChunkMeshControllerToPool(ChunkMeshController renderer)
+    {
+        if (renderer != null)
+        {
+            renderer.gameObject.SetActive(false);
+        }
+    }
+
+    private static void OnDestroyPooledChunkMeshController(ChunkMeshController renderer)
+    {
+        if (renderer != null)
+        {
+            Destroy(renderer.gameObject);
+        }
     }
 
     private void EnsureEditController()
@@ -375,7 +442,7 @@ public sealed class ChunkManager : MonoBehaviour
             if (renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
             {
                 renderers.Remove(chunkPos);
-                Destroy(renderer.gameObject);
+                ReleaseChunkMeshController(renderer);
             }
         }
     }
@@ -551,6 +618,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void ClearRuntimeChunks()
     {
+        chunkControllerPool?.Clear();
         for (int i = transform.childCount - 1; i >= 0; i--)
         {
             Transform child = transform.GetChild(i);

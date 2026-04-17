@@ -125,6 +125,25 @@ public sealed class ChunkMeshController : MonoBehaviour
         GetMeshPresenter().SetColliderUsage(shouldEnableCollider);
     }
 
+    public void ReleaseForPooling()
+    {
+        if (meshBuildState.PendingHandle != null)
+        {
+            meshBuildState.PendingHandle.Complete();
+            meshBuildState.PendingHandle = null;
+        }
+
+        meshBuildState.RebuildRequestedWhilePending = false;
+        chunkData = null;
+        neighborhood = default;
+        GetMeshPresenter().ResetForPooling();
+
+        if (TryGetComponent(out ChunkEditInteractor editInteractor))
+        {
+            editInteractor.SetChunkData(null);
+        }
+    }
+
     private void ScheduleMeshBuild()
     {
         BeginMeshBuildTiming();

@@ -143,6 +143,30 @@ public sealed class ChunkMeshPresenter : MonoBehaviour
         }
     }
 
+    public void ResetForPooling()
+    {
+        CacheComponents();
+
+        if (cachedMeshFilter != null)
+        {
+            cachedMeshFilter.sharedMesh = null;
+        }
+
+        if (cachedMeshRenderer != null)
+        {
+            cachedMeshRenderer.enabled = false;
+        }
+
+        if (cachedMeshCollider != null)
+        {
+            cachedMeshCollider.sharedMesh = null;
+            cachedMeshCollider.enabled = false;
+        }
+
+        hasRenderableMesh = false;
+        shouldUseCollider = false;
+    }
+
     private void OnDestroy()
     {
         if (generatedMesh == null)
