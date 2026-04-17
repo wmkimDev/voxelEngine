@@ -26,13 +26,16 @@ public sealed class ChunkManager : MonoBehaviour
     private readonly ChunkLoadScheduler loadScheduler = new();
     private readonly ChunkStreamingPriorityEvaluator streamingPriorityEvaluator = new();
     private readonly ChunkColliderPolicy chunkColliderPolicy = new();
+    private readonly HashSet<ChunkPos> activeUnloadProtectedChunks = new();
     private readonly HashSet<ChunkPos> pendingRebuildChunks = new();
     private readonly List<ChunkPos> rebuildQueueSnapshot = new();
+    private readonly List<ChunkPos> removedUnloadProtectedChunks = new();
     private IReadOnlyCollection<ChunkPos> cachedRequiredChunks = System.Array.Empty<ChunkPos>();
     private IReadOnlyCollection<ChunkPos> cachedUnloadProtectedChunks = System.Array.Empty<ChunkPos>();
     private IWorldGenerator worldGenerator;
     private IChunkStreamingPolicy loadStreamingPolicy;
     private IChunkStreamingPolicy unloadStreamingPolicy;
+    private VoxelEditController editController;
     private ChunkPos? currentCenterChunk;
     private ChunkPos? cachedStreamingCenterChunk;
     private int lastChunkLoadsPerformed;
@@ -47,6 +50,11 @@ public sealed class ChunkManager : MonoBehaviour
         ? worldSettings.ActiveMeshBuilderMode.ToString()
         : "Missing Settings";
 
+    private void Awake()
+    {
+        EnsureEditController();
+    }
+
     private void Start()
     {
         if (!EnsureWorldSettingsAssigned())
@@ -59,6 +67,7 @@ public sealed class ChunkManager : MonoBehaviour
         chunkDataCache.SetCapacity(worldSettings.CachedChunkCount);
         meshBuilder = CreateMeshBuilder();
         worldGenerator = CreateWorldGenerator();
+        ConfigureEditController();
         AlignStreamingTargetToSurface();
         RebuildStreamingPolicy();
         UpdateStreaming(force: true);
@@ -106,6 +115,7 @@ public sealed class ChunkManager : MonoBehaviour
         DisposeMeshBuilder();
         meshBuilder = CreateMeshBuilder();
         worldGenerator = CreateWorldGenerator();
+        ConfigureEditController();
         AlignStreamingTargetToSurface();
         RebuildStreamingPolicy();
         currentCenterChunk = null;
@@ -118,6 +128,8 @@ public sealed class ChunkManager : MonoBehaviour
     {
         loadStreamingPolicy = CreateStreamingPolicy(worldSettings.ViewDistanceInChunks);
         unloadStreamingPolicy = CreateStreamingPolicy(worldSettings.UnloadDistanceInChunks);
+        activeUnloadProtectedChunks.Clear();
+        removedUnloadProtectedChunks.Clear();
         cachedStreamingCenterChunk = null;
         cachedRequiredChunks = System.Array.Empty<ChunkPos>();
         cachedUnloadProtectedChunks = System.Array.Empty<ChunkPos>();
@@ -227,8 +239,14 @@ public sealed class ChunkManager : MonoBehaviour
         // unloadProtectedChunks는 "아직 유지해도 되는 청크 목록"입니다.
         // 이렇게 로드 반경과 언로드 반경을 분리해 경계에서 생겼다 사라지는 떨림을 줄입니다.
         var chunksNeedingRebuild = new HashSet<ChunkPos>();
-        CollectChunksNeedingRebuildForUnload(unloadProtectedChunks, chunksNeedingRebuild);
-        UnloadMissingChunks(unloadProtectedChunks);
+        if (centerChanged || force)
+        {
+            CollectRemovedUnloadProtectedChunks(unloadProtectedChunks, removedUnloadProtectedChunks);
+            CollectChunksNeedingRebuildForRemovedChunks(removedUnloadProtectedChunks, chunksNeedingRebuild);
+            UnloadChunks(removedUnloadProtectedChunks);
+            ReplaceActiveUnloadProtectedChunks(unloadProtectedChunks);
+        }
+
         LoadRequiredChunks(requiredChunks, targetChunk, chunksNeedingRebuild);
         QueueChunksNeedingMesh(chunksNeedingRebuild);
     }
@@ -304,12 +322,23 @@ public sealed class ChunkManager : MonoBehaviour
         ChunkEditInteractor editInteractor = chunkObject.AddComponent<ChunkEditInteractor>();
         editInteractor.Initialize(
             neighborhood.Center,
-            editCamera,
-            worldSettings.EditDistance,
-            worldSettings.PlaceVoxelType,
             editedLocalPos => QueueAffectedChunksForEdit(chunkPos, editedLocalPos));
 
         renderers.Add(chunkPos, renderer);
+    }
+
+    private void EnsureEditController()
+    {
+        if (editController == null && !TryGetComponent(out editController))
+        {
+            editController = gameObject.AddComponent<VoxelEditController>();
+        }
+    }
+
+    private void ConfigureEditController()
+    {
+        EnsureEditController();
+        editController.Initialize(editCamera, worldSettings, this);
     }
 
     private ChunkPos GetStreamingCenterChunk()
@@ -325,21 +354,8 @@ public sealed class ChunkManager : MonoBehaviour
         return target.position;
     }
 
-    private void UnloadMissingChunks(IReadOnlyCollection<ChunkPos> requiredChunks)
+    private void UnloadChunks(IReadOnlyCollection<ChunkPos> chunksToUnload)
     {
-        var requiredSet = new HashSet<ChunkPos>(requiredChunks);
-        var chunksToUnload = new List<ChunkPos>();
-
-        foreach (ChunkPos chunkPos in chunks.Keys)
-        {
-            if (!requiredSet.Contains(chunkPos))
-            {
-                // Dictionary를 foreach 중에 직접 수정하면 예외가 납니다.
-                // 먼저 제거할 키만 따로 모은 뒤, 아래 루프에서 실제 삭제합니다.
-                chunksToUnload.Add(chunkPos);
-            }
-        }
-
         foreach (ChunkPos chunkPos in chunksToUnload)
         {
             if (chunks.TryGetValue(chunkPos, out ChunkData chunkData))
@@ -413,20 +429,40 @@ public sealed class ChunkManager : MonoBehaviour
         }
     }
 
-    private void CollectChunksNeedingRebuildForUnload(
-        IReadOnlyCollection<ChunkPos> requiredChunks,
+    private void CollectChunksNeedingRebuildForRemovedChunks(
+        IReadOnlyCollection<ChunkPos> removedChunks,
         HashSet<ChunkPos> chunksNeedingRebuild)
     {
-        var requiredSet = new HashSet<ChunkPos>(requiredChunks);
-
-        foreach (ChunkPos chunkPos in chunks.Keys)
+        foreach (ChunkPos chunkPos in removedChunks)
         {
-            if (!requiredSet.Contains(chunkPos))
+            // 사라질 청크 자신은 곧 삭제되므로 재빌드할 필요가 없습니다.
+            // 대신 그 청크에 맞닿아 있던 이웃은 "바깥이 공기인지"를 다시 계산해야 합니다.
+            AddAdjacentChunkPositions(chunkPos, chunksNeedingRebuild);
+        }
+    }
+
+    private void CollectRemovedUnloadProtectedChunks(
+        IReadOnlyCollection<ChunkPos> currentUnloadProtectedChunks,
+        List<ChunkPos> removedChunks)
+    {
+        removedChunks.Clear();
+        var currentSet = new HashSet<ChunkPos>(currentUnloadProtectedChunks);
+
+        foreach (ChunkPos chunkPos in activeUnloadProtectedChunks)
+        {
+            if (!currentSet.Contains(chunkPos))
             {
-                // 사라질 청크 자신은 곧 삭제되므로 재빌드할 필요가 없습니다.
-                // 대신 그 청크에 맞닿아 있던 이웃은 "바깥이 공기인지"를 다시 계산해야 합니다.
-                AddAdjacentChunkPositions(chunkPos, chunksNeedingRebuild);
+                removedChunks.Add(chunkPos);
             }
+        }
+    }
+
+    private void ReplaceActiveUnloadProtectedChunks(IReadOnlyCollection<ChunkPos> unloadProtectedChunks)
+    {
+        activeUnloadProtectedChunks.Clear();
+        foreach (ChunkPos chunkPos in unloadProtectedChunks)
+        {
+            activeUnloadProtectedChunks.Add(chunkPos);
         }
     }
 

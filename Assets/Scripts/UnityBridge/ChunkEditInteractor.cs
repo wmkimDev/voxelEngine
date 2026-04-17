@@ -1,28 +1,17 @@
 using System;
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(ChunkMeshController))]
 public sealed class ChunkEditInteractor : MonoBehaviour
 {
-    [SerializeField] private Camera editCamera;
-    [SerializeField] private float editDistance = 30f;
-    [SerializeField] private byte placeVoxelType = VoxelType.Grass;
-
     private IChunkDataStore chunkData;
     private Action<LocalPos> voxelEdited;
 
     public void Initialize(
         IChunkDataStore data,
-        Camera camera,
-        float maxEditDistance,
-        byte voxelTypeToPlace,
         Action<LocalPos> onVoxelEdited)
     {
         chunkData = data;
-        editCamera = camera;
-        editDistance = Mathf.Max(0.1f, maxEditDistance);
-        placeVoxelType = (byte)Mathf.Clamp(voxelTypeToPlace, VoxelType.Dirt, VoxelType.Sand);
         voxelEdited = onVoxelEdited;
     }
 
@@ -31,77 +20,28 @@ public sealed class ChunkEditInteractor : MonoBehaviour
         chunkData = data;
     }
 
-    private void Update()
-    {
-        HandleMouseEdit();
-    }
-
-    private void OnValidate()
-    {
-        editDistance = Mathf.Max(0.1f, editDistance);
-        placeVoxelType = (byte)Mathf.Clamp(placeVoxelType, VoxelType.Dirt, VoxelType.Sand);
-    }
-
-    private void HandleMouseEdit()
-    {
-        Mouse mouse = Mouse.current;
-        if (mouse == null)
-        {
-            return;
-        }
-
-        if (mouse.leftButton.wasPressedThisFrame)
-        {
-            TryEditVoxel(place: false);
-            return;
-        }
-
-        if (mouse.rightButton.wasPressedThisFrame)
-        {
-            TryEditVoxel(place: true);
-        }
-    }
-
-    private void TryEditVoxel(bool place)
+    public bool TryEditFromHit(RaycastHit hit, bool place, byte voxelTypeToPlace)
     {
         if (chunkData == null)
         {
-            return;
-        }
-
-        Camera cameraToUse = editCamera != null ? editCamera : Camera.main;
-        if (cameraToUse == null)
-        {
-            UnityEngine.Debug.LogError($"{nameof(editCamera)} is required because no MainCamera was found.", this);
-            return;
-        }
-
-        // 조준점은 화면 중앙에 있으므로 Raycast도 화면 중앙에서 발사합니다.
-        Ray ray = cameraToUse.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
-        if (!Physics.Raycast(ray, out RaycastHit hit, editDistance))
-        {
-            return;
-        }
-
-        // 다른 collider를 클릭한 경우 이 청크의 voxel은 편집하지 않습니다.
-        if (hit.collider.gameObject != gameObject)
-        {
-            return;
+            return false;
         }
 
         if (!TryGetVoxelCoordinateFromHit(hit, place, out LocalPos localPos))
         {
-            return;
+            return false;
         }
 
-        byte nextValue = place ? placeVoxelType : VoxelType.Air;
+        byte placeVoxel = (byte)Mathf.Clamp(voxelTypeToPlace, VoxelType.Dirt, VoxelType.Sand);
+        byte nextValue = place ? placeVoxel : VoxelType.Air;
         if (chunkData.GetVoxel(localPos) == nextValue)
         {
-            return;
+            return false;
         }
 
         chunkData.SetVoxel(localPos, nextValue);
         voxelEdited?.Invoke(localPos);
+        return true;
     }
 
     private bool TryGetVoxelCoordinateFromHit(RaycastHit hit, bool place, out LocalPos localPos)
