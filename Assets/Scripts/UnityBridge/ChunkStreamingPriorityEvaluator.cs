@@ -3,7 +3,7 @@ using UnityEngine;
 
 // 스트리밍 정책이 "무엇이 필요하냐"를 정한다면,
 // 이 평가기( evaluator )는 "그중 무엇을 먼저 로드하냐"를 계산합니다.
-// 카메라 프러스텀과 화면 중앙 우선순위 계산을 ChunkManager 밖으로 빼
+// 카메라 프러스텀과 시선 방향 우선순위 계산을 ChunkManager 밖으로 빼
 // 스트리밍 조율과 시야 기반 점수 계산 책임을 분리합니다.
 public sealed class ChunkStreamingPriorityEvaluator
 {
@@ -39,18 +39,20 @@ public sealed class ChunkStreamingPriorityEvaluator
         }
     }
 
-    public void CollectScreenPriorityScores(
+    public void CollectForwardPriorityScores(
         Camera cameraToUse,
         IReadOnlyCollection<ChunkPos> chunkPositions,
-        Dictionary<ChunkPos, float> screenScores)
+        Dictionary<ChunkPos, float> forwardScores)
     {
-        screenScores.Clear();
+        forwardScores.Clear();
         if (cameraToUse == null || chunkPositions.Count == 0)
         {
             return;
         }
 
         int chunkSize = ChunkData.DefaultSize;
+        Vector3 cameraPosition = cameraToUse.transform.position;
+        Vector3 cameraForward = cameraToUse.transform.forward;
 
         foreach (ChunkPos chunkPos in chunkPositions)
         {
@@ -59,17 +61,14 @@ public sealed class ChunkStreamingPriorityEvaluator
                 origin.X + (chunkSize * 0.5f),
                 origin.Y + (chunkSize * 0.5f),
                 origin.Z + (chunkSize * 0.5f));
-            Vector3 viewportPoint = cameraToUse.WorldToViewportPoint(chunkCenter);
-
-            if (viewportPoint.z <= 0f)
+            Vector3 toChunk = chunkCenter - cameraPosition;
+            if (toChunk.sqrMagnitude <= Mathf.Epsilon)
             {
-                screenScores[chunkPos] = float.NegativeInfinity;
+                forwardScores[chunkPos] = 1f;
                 continue;
             }
 
-            float dx = viewportPoint.x - 0.5f;
-            float dy = viewportPoint.y - 0.5f;
-            screenScores[chunkPos] = -((dx * dx) + (dy * dy));
+            forwardScores[chunkPos] = Vector3.Dot(cameraForward, toChunk.normalized);
         }
     }
 }

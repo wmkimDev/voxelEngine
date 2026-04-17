@@ -6,19 +6,19 @@ public sealed class ChunkLoadScheduler
     // 이 책임을 분리해두면 나중에 우선순위 큐, 시간 예산, 비동기 Job으로 바꾸기 쉽습니다.
     public List<ChunkPos> SortByDistance(IEnumerable<ChunkPos> chunkPositions, ChunkPos centerChunk)
     {
-        return SortByVisibilityAndDistance(chunkPositions, centerChunk, preferredChunkPositions: null, screenPriorityScores: null);
+        return SortByVisibilityAndDistance(chunkPositions, centerChunk, preferredChunkPositions: null, forwardPriorityScores: null);
     }
 
     // preferredChunkPositions에 들어 있는 청크를 먼저 로드하고,
-    // 같은 그룹 안에서는 화면 중앙에 더 가까운 청크를 먼저, 그래도 같으면 가까운 청크를 우선으로 정렬합니다.
+    // 같은 그룹 안에서는 카메라가 바라보는 방향에 더 가까운 청크를 먼저, 그래도 같으면 가까운 청크를 우선으로 정렬합니다.
     public List<ChunkPos> SortByVisibilityAndDistance(
         IEnumerable<ChunkPos> chunkPositions,
         ChunkPos centerChunk,
         HashSet<ChunkPos> preferredChunkPositions,
-        Dictionary<ChunkPos, float> screenPriorityScores)
+        Dictionary<ChunkPos, float> forwardPriorityScores)
     {
         var sorted = new List<ChunkPos>(chunkPositions);
-        SortByVisibilityAndDistanceInPlace(sorted, centerChunk, preferredChunkPositions, screenPriorityScores);
+        SortByVisibilityAndDistanceInPlace(sorted, centerChunk, preferredChunkPositions, forwardPriorityScores);
         return sorted;
     }
 
@@ -26,10 +26,10 @@ public sealed class ChunkLoadScheduler
         List<ChunkPos> chunkPositions,
         ChunkPos centerChunk,
         HashSet<ChunkPos> preferredChunkPositions,
-        Dictionary<ChunkPos, float> screenPriorityScores)
+        Dictionary<ChunkPos, float> forwardPriorityScores)
     {
         // 카메라 프러스텀 안쪽 청크를 먼저 만들고,
-        // 그 안에서는 화면 중앙에 더 가까운 청크를 우선해 회전 시 시야 중심부터 월드가 채워지게 합니다.
+        // 그 안에서는 카메라가 정면으로 보고 있는 청크를 우선해 회전 시 바라보는 방향부터 월드가 채워지게 합니다.
         // 그래도 우선순위가 같으면 가까운 청크를 먼저 만들어 기존 거리 기반 감각을 유지합니다.
         chunkPositions.Sort((a, b) =>
         {
@@ -39,10 +39,10 @@ public sealed class ChunkLoadScheduler
                 return visibilityCompare;
             }
 
-            int screenCompare = CompareScreenPriority(a, b, screenPriorityScores);
-            if (screenCompare != 0)
+            int forwardCompare = CompareForwardPriority(a, b, forwardPriorityScores);
+            if (forwardCompare != 0)
             {
-                return screenCompare;
+                return forwardCompare;
             }
 
             return GetDistanceSquared(a, centerChunk).CompareTo(GetDistanceSquared(b, centerChunk));
@@ -69,18 +69,18 @@ public sealed class ChunkLoadScheduler
         return aPreferred ? -1 : 1;
     }
 
-    private static int CompareScreenPriority(
+    private static int CompareForwardPriority(
         ChunkPos a,
         ChunkPos b,
-        Dictionary<ChunkPos, float> screenPriorityScores)
+        Dictionary<ChunkPos, float> forwardPriorityScores)
     {
-        if (screenPriorityScores == null || screenPriorityScores.Count == 0)
+        if (forwardPriorityScores == null || forwardPriorityScores.Count == 0)
         {
             return 0;
         }
 
-        float aScore = screenPriorityScores.TryGetValue(a, out float foundAScore) ? foundAScore : float.NegativeInfinity;
-        float bScore = screenPriorityScores.TryGetValue(b, out float foundBScore) ? foundBScore : float.NegativeInfinity;
+        float aScore = forwardPriorityScores.TryGetValue(a, out float foundAScore) ? foundAScore : float.NegativeInfinity;
+        float bScore = forwardPriorityScores.TryGetValue(b, out float foundBScore) ? foundBScore : float.NegativeInfinity;
         return bScore.CompareTo(aScore);
     }
 

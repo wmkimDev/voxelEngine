@@ -16,9 +16,9 @@ public sealed class RadialStreamingPolicy : IChunkStreamingPolicy
         this.maxLayerY = Math.Max(minLayerY, maxLayerY);
     }
 
-    public IReadOnlyCollection<ChunkPos> GetRequiredChunks(ChunkPos centerChunk)
+    public void CollectRequiredChunks(ChunkPos centerChunk, HashSet<ChunkPos> requiredChunks)
     {
-        var requiredChunks = new List<ChunkPos>();
+        requiredChunks.Clear();
         int radiusSquared = horizontalRadius * horizontalRadius;
 
         for (int y = minLayerY; y <= maxLayerY; y++)
@@ -38,7 +38,5 @@ public sealed class RadialStreamingPolicy : IChunkStreamingPolicy
                 }
             }
         }
-
-        return requiredChunks;
     }
 }

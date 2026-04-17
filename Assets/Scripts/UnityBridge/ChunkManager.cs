@@ -37,8 +37,8 @@ public sealed class ChunkManager : MonoBehaviour
     // 스트리밍 중심 청크와, 그 기준으로 계산해 둔 required/unload 집합 캐시입니다.
     private ChunkPos? currentCenterChunk;
     private ChunkPos? cachedStreamingCenterChunk;
-    private IReadOnlyCollection<ChunkPos> cachedRequiredChunks = System.Array.Empty<ChunkPos>();
-    private IReadOnlyCollection<ChunkPos> cachedUnloadProtectedChunks = System.Array.Empty<ChunkPos>();
+    private readonly HashSet<ChunkPos> cachedRequiredChunks = new();
+    private readonly HashSet<ChunkPos> cachedUnloadProtectedChunks = new();
     private readonly HashSet<ChunkPos> activeUnloadProtectedChunks = new();
     private readonly List<ChunkPos> removedUnloadProtectedChunks = new();
 
@@ -142,8 +142,8 @@ public sealed class ChunkManager : MonoBehaviour
         activeUnloadProtectedChunks.Clear();
         removedUnloadProtectedChunks.Clear();
         cachedStreamingCenterChunk = null;
-        cachedRequiredChunks = System.Array.Empty<ChunkPos>();
-        cachedUnloadProtectedChunks = System.Array.Empty<ChunkPos>();
+        cachedRequiredChunks.Clear();
+        cachedUnloadProtectedChunks.Clear();
     }
 
     private IChunkStreamingPolicy CreateStreamingPolicy(int horizontalRadius)
@@ -213,23 +213,16 @@ public sealed class ChunkManager : MonoBehaviour
             && cachedStreamingCenterChunk.HasValue
             && cachedStreamingCenterChunk.Value.Equals(targetChunk);
 
-        IReadOnlyCollection<ChunkPos> requiredChunks;
-        IReadOnlyCollection<ChunkPos> unloadProtectedChunks;
-
         if (canReuseCachedSets)
         {
-            requiredChunks = cachedRequiredChunks;
-            unloadProtectedChunks = cachedUnloadProtectedChunks;
         }
         else
         {
             // 플레이어가 같은 중심 청크 안에 있는 동안 required/unload 집합은 바뀌지 않습니다.
             // 그래서 중심 청크가 바뀌었을 때만 새로 만들고, 나머지 프레임에는 이전 결과를 재사용합니다.
-            requiredChunks = loadStreamingPolicy.GetRequiredChunks(targetChunk);
-            unloadProtectedChunks = unloadStreamingPolicy.GetRequiredChunks(targetChunk);
+            loadStreamingPolicy.CollectRequiredChunks(targetChunk, cachedRequiredChunks);
+            unloadStreamingPolicy.CollectRequiredChunks(targetChunk, cachedUnloadProtectedChunks);
             cachedStreamingCenterChunk = targetChunk;
-            cachedRequiredChunks = requiredChunks;
-            cachedUnloadProtectedChunks = unloadProtectedChunks;
         }
 
         // 필요한 청크가 9개여도 한 프레임에는 maxChunkLoadsPerFrame개만 만듭니다.
@@ -237,7 +230,7 @@ public sealed class ChunkManager : MonoBehaviour
         // 다음 프레임에도 스트리밍 갱신을 계속해야 합니다.
         // currentCenterChunk가 null이면 아직 비교할 이전 중심 청크가 없다는 뜻입니다.
         // 하지만 실제로 계속 로드할지 여부는 아래 hasMissingChunks가 판단합니다.
-        bool hasMissingChunks = HasMissingChunks(requiredChunks);
+        bool hasMissingChunks = HasMissingChunks(cachedRequiredChunks);
 
         if (!force && !centerChanged && !hasMissingChunks)
         {
@@ -253,13 +246,13 @@ public sealed class ChunkManager : MonoBehaviour
         HashSet<ChunkPos> chunksNeedingRebuild = chunksNeedingRebuildBuffer;
         if (centerChanged || force)
         {
-            CollectRemovedUnloadProtectedChunks(unloadProtectedChunks, removedUnloadProtectedChunks);
+            CollectRemovedUnloadProtectedChunks(cachedUnloadProtectedChunks, removedUnloadProtectedChunks);
             CollectChunksNeedingRebuildForRemovedChunks(removedUnloadProtectedChunks, chunksNeedingRebuild);
             UnloadChunks(removedUnloadProtectedChunks);
-            ReplaceActiveUnloadProtectedChunks(unloadProtectedChunks);
+            ReplaceActiveUnloadProtectedChunks(cachedUnloadProtectedChunks);
         }
 
-        LoadRequiredChunks(requiredChunks, targetChunk, chunksNeedingRebuild);
+        LoadRequiredChunks(cachedRequiredChunks, targetChunk, chunksNeedingRebuild);
         QueueChunksNeedingMesh(chunksNeedingRebuild);
     }
 
@@ -419,7 +412,7 @@ public sealed class ChunkManager : MonoBehaviour
             cameraToUse,
             chunksToLoadBuffer,
             visibleChunkPositionsBuffer);
-        streamingPriorityEvaluator.CollectScreenPriorityScores(
+        streamingPriorityEvaluator.CollectForwardPriorityScores(
             cameraToUse,
             chunksToLoadBuffer,
             screenPriorityScoresBuffer);

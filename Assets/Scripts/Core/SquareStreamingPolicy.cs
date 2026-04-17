@@ -16,9 +16,9 @@ public sealed class SquareStreamingPolicy : IChunkStreamingPolicy
         this.maxLayerY = Math.Max(minLayerY, maxLayerY);
     }
 
-    public IReadOnlyCollection<ChunkPos> GetRequiredChunks(ChunkPos centerChunk)
+    public void CollectRequiredChunks(ChunkPos centerChunk, HashSet<ChunkPos> requiredChunks)
     {
-        var requiredChunks = new List<ChunkPos>();
+        requiredChunks.Clear();
 
         for (int y = minLayerY; y <= maxLayerY; y++)
         {
@@ -32,7 +32,5 @@ public sealed class SquareStreamingPolicy : IChunkStreamingPolicy
                 }
             }
         }
-
-        return requiredChunks;
     }
 }
