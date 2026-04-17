@@ -454,8 +454,12 @@ public sealed class ChunkManager : MonoBehaviour
 
         pendingRebuildChunks.Clear();
 
-        foreach (ChunkPos chunkPos in rebuildQueueSnapshot)
+        int maxChunkRebuildsPerFrame = Mathf.Max(0, worldSettings.MaxChunkRebuildsPerFrame);
+        int rebuildCount = Mathf.Min(maxChunkRebuildsPerFrame, rebuildQueueSnapshot.Count);
+
+        for (int i = 0; i < rebuildCount; i++)
         {
+            ChunkPos chunkPos = rebuildQueueSnapshot[i];
             if (!renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
             {
                 continue;
@@ -466,6 +470,11 @@ public sealed class ChunkManager : MonoBehaviour
             renderer.UpdateNeighborhood(CreateNeighborhood(chunkPos));
             renderer.RebuildMesh();
             lastChunkRebuildsPerformed++;
+        }
+
+        for (int i = rebuildCount; i < rebuildQueueSnapshot.Count; i++)
+        {
+            pendingRebuildChunks.Add(rebuildQueueSnapshot[i]);
         }
 
         rebuildQueueSnapshot.Clear();

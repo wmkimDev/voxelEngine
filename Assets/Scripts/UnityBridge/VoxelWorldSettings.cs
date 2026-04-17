@@ -30,6 +30,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
     [SerializeField] private int maxChunkLoadsPerFrame = 4;
 
     [Header("Meshing")]
+    [SerializeField] private int maxChunkRebuildsPerFrame = 6;
     [SerializeField] private MeshBuilderMode meshBuilderMode = MeshBuilderMode.Greedy;
     [SerializeField] private Material material;
     [SerializeField] private Texture2D voxelAtlas;
@@ -58,6 +59,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
     public int MinLayerY => minLayerY;
     public int MaxLayerY => maxLayerY;
     public int MaxChunkLoadsPerFrame => maxChunkLoadsPerFrame;
+    public int MaxChunkRebuildsPerFrame => maxChunkRebuildsPerFrame;
     public MeshBuilderMode ActiveMeshBuilderMode => meshBuilderMode;
     public Material Material => material;
     public Texture2D VoxelAtlas => voxelAtlas;
