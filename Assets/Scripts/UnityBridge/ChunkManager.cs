@@ -51,6 +51,7 @@ public sealed class ChunkManager : MonoBehaviour
     // Update() 핫패스에서 매 프레임 재사용하는 작업 버퍼들입니다.
     private readonly HashSet<ChunkPos> chunksNeedingRebuildBuffer = new();
     private readonly List<ChunkPos> chunksToLoadBuffer = new();
+    private readonly List<ChunkPos> loadPriorityShortlistBuffer = new();
     private readonly HashSet<ChunkPos> visibleChunkPositionsBuffer = new();
     private readonly Dictionary<ChunkPos, float> forwardPriorityScoresBuffer = new();
     private readonly HashSet<ChunkPos> currentUnloadProtectedChunkSetBuffer = new();
@@ -479,30 +480,43 @@ public sealed class ChunkManager : MonoBehaviour
             }
         }
 
+        int maxChunkLoadsPerFrame = worldSettings.MaxChunkLoadsPerFrame;
+        int shortlistCount = Mathf.Min(
+            chunksToLoadBuffer.Count,
+            maxChunkLoadsPerFrame * worldSettings.LoadPriorityShortlistMultiplier);
+
+        loadPriorityShortlistBuffer.Clear();
+        loadPriorityShortlistBuffer.AddRange(chunksToLoadBuffer);
+        loadScheduler.SelectTopByVisibilityAndDistanceInPlace(
+            loadPriorityShortlistBuffer,
+            centerChunk,
+            preferredChunkPositions: null,
+            forwardPriorityScores: null,
+            shortlistCount);
+
         Camera cameraToUse = editCamera != null ? editCamera : Camera.main;
         streamingPriorityEvaluator.CollectVisibleChunkPositions(
             cameraToUse,
-            chunksToLoadBuffer,
+            loadPriorityShortlistBuffer,
             visibleChunkPositionsBuffer);
         streamingPriorityEvaluator.CollectForwardPriorityScores(
             cameraToUse,
-            chunksToLoadBuffer,
+            loadPriorityShortlistBuffer,
             forwardPriorityScoresBuffer);
-        int maxChunkLoadsPerFrame = worldSettings.MaxChunkLoadsPerFrame;
         loadScheduler.SelectTopByVisibilityAndDistanceInPlace(
-            chunksToLoadBuffer,
+            loadPriorityShortlistBuffer,
             centerChunk,
             visibleChunkPositionsBuffer,
             forwardPriorityScoresBuffer,
             maxChunkLoadsPerFrame);
-        int loadCount = chunksToLoadBuffer.Count;
+        int loadCount = loadPriorityShortlistBuffer.Count;
         VoxelPerformanceStats.RecordChunkLoadCount(loadCount);
 
         for (int i = 0; i < loadCount; i++)
         {
             // 이번 단계에서는 생성과 메시 빌드를 모두 메인 스레드에서 처리합니다.
             // 일부러 프레임당 개수를 제한해 끊김을 관찰하고, 다음 단계의 비동기화 필요성을 확인합니다.
-            ChunkPos chunkPos = chunksToLoadBuffer[i];
+            ChunkPos chunkPos = loadPriorityShortlistBuffer[i];
             ChunkData chunkData = CreateChunkData(chunkPos);
             chunks.Add(chunkPos, chunkData);
             CreateChunkMeshController(chunkPos, CreateNeighborhood(chunkPos));

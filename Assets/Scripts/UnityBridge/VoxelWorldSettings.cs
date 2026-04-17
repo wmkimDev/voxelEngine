@@ -28,6 +28,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
     [SerializeField] private int minLayerY = 0;
     [SerializeField] private int maxLayerY = 0;
     [SerializeField] private int maxChunkLoadsPerFrame = 4;
+    [SerializeField] private int loadPriorityShortlistMultiplier = 4;
 
     [Header("Meshing")]
     [SerializeField] private int maxChunkRebuildsPerFrame = 6;
@@ -59,6 +60,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
     public int MinLayerY => minLayerY;
     public int MaxLayerY => maxLayerY;
     public int MaxChunkLoadsPerFrame => maxChunkLoadsPerFrame;
+    public int LoadPriorityShortlistMultiplier => loadPriorityShortlistMultiplier;
     public int MaxChunkRebuildsPerFrame => maxChunkRebuildsPerFrame;
     public MeshBuilderMode ActiveMeshBuilderMode => meshBuilderMode;
     public Material Material => material;
@@ -99,6 +101,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
         cachedChunkCount = Mathf.Max(0, cachedChunkCount);
         maxLayerY = Mathf.Max(minLayerY, maxLayerY);
         maxChunkLoadsPerFrame = Mathf.Max(1, maxChunkLoadsPerFrame);
+        loadPriorityShortlistMultiplier = Mathf.Max(1, loadPriorityShortlistMultiplier);
         editDistance = Mathf.Max(0.1f, editDistance);
         placeVoxelType = (byte)Mathf.Clamp(placeVoxelType, VoxelType.Dirt, VoxelType.Sand);
         noiseScale = Mathf.Max(0.001f, noiseScale);
