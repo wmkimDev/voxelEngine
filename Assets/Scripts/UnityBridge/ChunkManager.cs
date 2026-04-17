@@ -19,31 +19,35 @@ public sealed class ChunkManager : MonoBehaviour
     [SerializeField] private bool alignStreamingTargetToSurfaceOnStart = true;
     [SerializeField] private float spawnHeightPadding = 0.05f;
 
+    // 현재 로드되어 있는 청크 데이터와, 그 청크를 화면에 그리는 Unity 쪽 컨트롤러입니다.
     private readonly Dictionary<ChunkPos, ChunkData> chunks = new();
     private readonly Dictionary<ChunkPos, ChunkMeshController> renderers = new();
     private readonly ChunkDataCache chunkDataCache = new(0);
+
+    // 로드/메싱/충돌/편집처럼 ChunkManager가 협력하는 보조 객체들입니다.
     private IMeshBuilder meshBuilder;
-    private readonly ChunkLoadScheduler loadScheduler = new();
-    private readonly ChunkStreamingPriorityEvaluator streamingPriorityEvaluator = new();
-    private readonly ChunkColliderPolicy chunkColliderPolicy = new();
-    private readonly HashSet<ChunkPos> activeUnloadProtectedChunks = new();
-    private readonly HashSet<ChunkPos> pendingRebuildChunks = new();
-    private readonly List<ChunkPos> rebuildQueueSnapshot = new();
-    private readonly List<ChunkPos> removedUnloadProtectedChunks = new();
-    private IReadOnlyCollection<ChunkPos> cachedRequiredChunks = System.Array.Empty<ChunkPos>();
-    private IReadOnlyCollection<ChunkPos> cachedUnloadProtectedChunks = System.Array.Empty<ChunkPos>();
     private IWorldGenerator worldGenerator;
     private IChunkStreamingPolicy loadStreamingPolicy;
     private IChunkStreamingPolicy unloadStreamingPolicy;
+    private readonly ChunkLoadScheduler loadScheduler = new();
+    private readonly ChunkStreamingPriorityEvaluator streamingPriorityEvaluator = new();
+    private readonly ChunkColliderPolicy chunkColliderPolicy = new();
     private VoxelEditController editController;
+
+    // 스트리밍 중심 청크와, 그 기준으로 계산해 둔 required/unload 집합 캐시입니다.
     private ChunkPos? currentCenterChunk;
     private ChunkPos? cachedStreamingCenterChunk;
-    private int lastChunkLoadsPerformed;
-    private int lastChunkRebuildsPerformed;
+    private IReadOnlyCollection<ChunkPos> cachedRequiredChunks = System.Array.Empty<ChunkPos>();
+    private IReadOnlyCollection<ChunkPos> cachedUnloadProtectedChunks = System.Array.Empty<ChunkPos>();
+    private readonly HashSet<ChunkPos> activeUnloadProtectedChunks = new();
+    private readonly List<ChunkPos> removedUnloadProtectedChunks = new();
+
+    // 이웃 경계가 바뀌어 다시 메싱해야 하는 청크를 모아두는 작업 큐입니다.
+    // HashSet으로 중복 요청을 합치고, List 스냅샷으로 이번 프레임 처리분만 순회합니다.
+    private readonly HashSet<ChunkPos> pendingRebuildChunks = new();
+    private readonly List<ChunkPos> rebuildQueueSnapshot = new();
 
     public int LoadedChunkCount => chunks.Count;
-    public int LastChunkLoadsPerformed => lastChunkLoadsPerformed;
-    public int LastChunkRebuildsPerformed => lastChunkRebuildsPerformed;
     public Vector3 StreamingTargetPosition => GetStreamingTargetPosition();
     public ChunkPos StreamingTargetChunk => GetStreamingCenterChunk();
     public string ActiveMeshBuilderName => worldSettings != null
@@ -180,7 +184,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void UpdateStreaming(bool force)
     {
-        lastChunkLoadsPerformed = 0;
+        VoxelPerformanceStats.RecordChunkLoadCount(0);
 
         if (worldGenerator == null)
         {
@@ -412,7 +416,7 @@ public sealed class ChunkManager : MonoBehaviour
             screenPriorityScores);
         int maxChunkLoadsPerFrame = worldSettings.MaxChunkLoadsPerFrame;
         int loadCount = Mathf.Min(maxChunkLoadsPerFrame, sortedChunks.Count);
-        lastChunkLoadsPerformed = loadCount;
+        VoxelPerformanceStats.RecordChunkLoadCount(loadCount);
 
         for (int i = 0; i < loadCount; i++)
         {
@@ -476,7 +480,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void ProcessPendingRebuilds()
     {
-        lastChunkRebuildsPerformed = 0;
+        VoxelPerformanceStats.RecordChunkRebuildCount(0);
         if (pendingRebuildChunks.Count == 0)
         {
             return;
@@ -493,6 +497,7 @@ public sealed class ChunkManager : MonoBehaviour
         int maxChunkRebuildsPerFrame = Mathf.Max(0, worldSettings.MaxChunkRebuildsPerFrame);
         int rebuildCount = Mathf.Min(maxChunkRebuildsPerFrame, rebuildQueueSnapshot.Count);
 
+        int rebuildsPerformed = 0;
         for (int i = 0; i < rebuildCount; i++)
         {
             ChunkPos chunkPos = rebuildQueueSnapshot[i];
@@ -505,8 +510,10 @@ public sealed class ChunkManager : MonoBehaviour
             // 실제 RebuildMesh 직전에 최신 neighborhood를 다시 연결합니다.
             renderer.UpdateNeighborhood(CreateNeighborhood(chunkPos));
             renderer.RebuildMesh();
-            lastChunkRebuildsPerformed++;
+            rebuildsPerformed++;
         }
+
+        VoxelPerformanceStats.RecordChunkRebuildCount(rebuildsPerformed);
 
         for (int i = rebuildCount; i < rebuildQueueSnapshot.Count; i++)
         {

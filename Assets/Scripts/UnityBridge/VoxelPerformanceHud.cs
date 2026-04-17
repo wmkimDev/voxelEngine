@@ -67,8 +67,8 @@ public sealed class VoxelPerformanceHud : MonoBehaviour
 
         builder.Append("Mesh Builder: ").Append(chunkManager.ActiveMeshBuilderName).AppendLine();
         builder.Append("Loaded Chunks: ").Append(chunkManager.LoadedChunkCount).AppendLine();
-        builder.Append("Chunk Loads / Update: ").Append(chunkManager.LastChunkLoadsPerformed).AppendLine();
-        builder.Append("Chunk Rebuilds / Update: ").Append(chunkManager.LastChunkRebuildsPerformed).AppendLine();
+        builder.Append("Chunk Loads / Update: ").Append(VoxelPerformanceStats.LastChunkLoadsPerformed).AppendLine();
+        builder.Append("Chunk Rebuilds / Update: ").Append(VoxelPerformanceStats.LastChunkRebuildsPerformed).AppendLine();
         Vector3 playerPosition = chunkManager.StreamingTargetPosition;
         ChunkPos playerChunk = chunkManager.StreamingTargetChunk;
         builder.Append("Player Position: (")
