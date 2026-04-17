@@ -28,10 +28,13 @@ public sealed class ChunkManager : MonoBehaviour
     private readonly ChunkColliderPolicy chunkColliderPolicy = new();
     private readonly HashSet<ChunkPos> pendingRebuildChunks = new();
     private readonly List<ChunkPos> rebuildQueueSnapshot = new();
+    private IReadOnlyCollection<ChunkPos> cachedRequiredChunks = System.Array.Empty<ChunkPos>();
+    private IReadOnlyCollection<ChunkPos> cachedUnloadProtectedChunks = System.Array.Empty<ChunkPos>();
     private IWorldGenerator worldGenerator;
     private IChunkStreamingPolicy loadStreamingPolicy;
     private IChunkStreamingPolicy unloadStreamingPolicy;
     private ChunkPos? currentCenterChunk;
+    private ChunkPos? cachedStreamingCenterChunk;
     private int lastChunkLoadsPerformed;
     private int lastChunkRebuildsPerformed;
 
@@ -115,6 +118,9 @@ public sealed class ChunkManager : MonoBehaviour
     {
         loadStreamingPolicy = CreateStreamingPolicy(worldSettings.ViewDistanceInChunks);
         unloadStreamingPolicy = CreateStreamingPolicy(worldSettings.UnloadDistanceInChunks);
+        cachedStreamingCenterChunk = null;
+        cachedRequiredChunks = System.Array.Empty<ChunkPos>();
+        cachedUnloadProtectedChunks = System.Array.Empty<ChunkPos>();
     }
 
     private IChunkStreamingPolicy CreateStreamingPolicy(int horizontalRadius)
@@ -178,15 +184,36 @@ public sealed class ChunkManager : MonoBehaviour
         chunkDataCache.SetCapacity(worldSettings.CachedChunkCount);
 
         ChunkPos targetChunk = GetStreamingCenterChunk();
-        IReadOnlyCollection<ChunkPos> requiredChunks = loadStreamingPolicy.GetRequiredChunks(targetChunk);
-        IReadOnlyCollection<ChunkPos> unloadProtectedChunks = unloadStreamingPolicy.GetRequiredChunks(targetChunk);
+        bool centerChanged = !currentCenterChunk.HasValue || !targetChunk.Equals(currentCenterChunk.Value);
+        bool canReuseCachedSets = !force
+            && !centerChanged
+            && cachedStreamingCenterChunk.HasValue
+            && cachedStreamingCenterChunk.Value.Equals(targetChunk);
+
+        IReadOnlyCollection<ChunkPos> requiredChunks;
+        IReadOnlyCollection<ChunkPos> unloadProtectedChunks;
+
+        if (canReuseCachedSets)
+        {
+            requiredChunks = cachedRequiredChunks;
+            unloadProtectedChunks = cachedUnloadProtectedChunks;
+        }
+        else
+        {
+            // 플레이어가 같은 중심 청크 안에 있는 동안 required/unload 집합은 바뀌지 않습니다.
+            // 그래서 중심 청크가 바뀌었을 때만 새로 만들고, 나머지 프레임에는 이전 결과를 재사용합니다.
+            requiredChunks = loadStreamingPolicy.GetRequiredChunks(targetChunk);
+            unloadProtectedChunks = unloadStreamingPolicy.GetRequiredChunks(targetChunk);
+            cachedStreamingCenterChunk = targetChunk;
+            cachedRequiredChunks = requiredChunks;
+            cachedUnloadProtectedChunks = unloadProtectedChunks;
+        }
 
         // 필요한 청크가 9개여도 한 프레임에는 maxChunkLoadsPerFrame개만 만듭니다.
         // 그래서 플레이어가 같은 청크에 머물러 있어도, 아직 못 만든 청크가 있으면
         // 다음 프레임에도 스트리밍 갱신을 계속해야 합니다.
         // currentCenterChunk가 null이면 아직 비교할 이전 중심 청크가 없다는 뜻입니다.
         // 하지만 실제로 계속 로드할지 여부는 아래 hasMissingChunks가 판단합니다.
-        bool centerChanged = !currentCenterChunk.HasValue || !targetChunk.Equals(currentCenterChunk.Value);
         bool hasMissingChunks = HasMissingChunks(requiredChunks);
 
         if (!force && !centerChanged && !hasMissingChunks)
