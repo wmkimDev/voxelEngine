@@ -127,10 +127,7 @@ public struct JobMeshBuildBuffers
         if (chunkData is IRawVoxelBufferSource rawVoxelBufferSource)
         {
             byte[] rawVoxels = rawVoxelBufferSource.GetRawVoxelBuffer();
-            for (int i = 0; i < rawVoxels.Length; i++)
-            {
-                buffer[i] = rawVoxels[i];
-            }
+            NativeArray<byte>.Copy(rawVoxels, buffer);
 
             return;
         }
