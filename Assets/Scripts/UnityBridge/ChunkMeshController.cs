@@ -38,7 +38,8 @@ public sealed class ChunkMeshController : MonoBehaviour
         ChunkNeighborhood chunkNeighborhood,
         IMeshBuilder builder,
         Material sharedMaterial,
-        Texture2D atlas)
+        Texture2D atlas,
+        bool rebuildImmediately = true)
     {
         neighborhood = chunkNeighborhood;
         chunkData = chunkNeighborhood.Center;
@@ -46,7 +47,10 @@ public sealed class ChunkMeshController : MonoBehaviour
         meshPresenter = GetComponent<ChunkMeshPresenter>();
         meshPresenter.Initialize(sharedMaterial, atlas);
 
-        RebuildMesh();
+        if (rebuildImmediately)
+        {
+            RebuildMesh();
+        }
     }
 
     public void UpdateNeighborhood(ChunkNeighborhood chunkNeighborhood)

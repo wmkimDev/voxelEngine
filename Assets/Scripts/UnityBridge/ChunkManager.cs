@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System;
 using UnityEngine;
 using UnityEngine.Pool;
 
@@ -34,6 +35,7 @@ public sealed class ChunkManager : MonoBehaviour
     private readonly ChunkStreamingPriorityEvaluator streamingPriorityEvaluator = new();
     private readonly ChunkColliderPolicy chunkColliderPolicy = new();
     private VoxelEditController editController;
+    private Func<ChunkPos, bool> processQueuedMeshBuildCallback;
 
     // 스트리밍 중심 청크와, 그 기준으로 계산해 둔 required/unload 집합 캐시입니다.
     private ChunkPos? currentCenterChunk;
@@ -43,10 +45,8 @@ public sealed class ChunkManager : MonoBehaviour
     private readonly HashSet<ChunkPos> activeUnloadProtectedChunks = new();
     private readonly List<ChunkPos> removedUnloadProtectedChunks = new();
 
-    // 이웃 경계가 바뀌어 다시 메싱해야 하는 청크를 모아두는 작업 큐입니다.
-    // HashSet으로 중복 요청을 합치고, List 스냅샷으로 이번 프레임 처리분만 순회합니다.
-    private readonly HashSet<ChunkPos> pendingRebuildChunks = new();
-    private readonly List<ChunkPos> rebuildQueueSnapshot = new();
+    // 새 청크의 첫 메싱과 기존 청크 재빌드를 예산 안에서 처리하는 큐입니다.
+    private readonly ChunkMeshBuildQueue meshBuildQueue = new();
 
     // Update() 핫패스에서 매 프레임 재사용하는 작업 버퍼들입니다.
     private readonly HashSet<ChunkPos> chunksNeedingRebuildBuffer = new();
@@ -66,6 +66,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void Awake()
     {
+        processQueuedMeshBuildCallback ??= ProcessQueuedMeshBuild;
         EnsureChunkControllerPool();
         EnsureEditController();
     }
@@ -327,7 +328,8 @@ public sealed class ChunkManager : MonoBehaviour
             neighborhood,
             meshBuilder,
             worldSettings.Material,
-            worldSettings.VoxelAtlas);
+            worldSettings.VoxelAtlas,
+            rebuildImmediately: false);
 
         ChunkEditInteractor editInteractor = chunkObject.GetComponent<ChunkEditInteractor>();
         editInteractor.Initialize(
@@ -450,6 +452,8 @@ public sealed class ChunkManager : MonoBehaviour
                 renderers.Remove(chunkPos);
                 ReleaseChunkMeshController(renderer);
             }
+
+            meshBuildQueue.Remove(chunkPos);
         }
     }
 
@@ -520,9 +524,10 @@ public sealed class ChunkManager : MonoBehaviour
             ChunkData chunkData = CreateChunkData(chunkPos);
             chunks.Add(chunkPos, chunkData);
             CreateChunkMeshController(chunkPos, CreateNeighborhood(chunkPos));
+            QueueChunkInitialBuild(chunkPos);
 
             // 새 청크가 들어오면 그 청크와 맞닿은 기존 청크들의 경계 면 판정이 달라질 수 있습니다.
-            // 새 청크 자신은 Initialize 안에서 이미 한 번 메시를 만들었으므로, 여기서는 이웃만 다시 보게 합니다.
+            // 새 청크 자신은 별도 초기 메싱 큐에서 처리하고, 여기서는 이웃만 다시 보게 합니다.
             AddAdjacentChunkPositions(chunkPos, chunksNeedingRebuild);
         }
     }
@@ -572,53 +577,21 @@ public sealed class ChunkManager : MonoBehaviour
     {
         foreach (ChunkPos chunkPos in chunksNeedingRebuild)
         {
-            pendingRebuildChunks.Add(chunkPos);
+            QueueChunkRebuild(chunkPos);
         }
     }
 
     private void ProcessPendingRebuilds()
     {
         VoxelPerformanceStats.RecordChunkRebuildCount(0);
-        if (pendingRebuildChunks.Count == 0)
+        if (!meshBuildQueue.HasPendingBuilds)
         {
             return;
         }
 
-        rebuildQueueSnapshot.Clear();
-        foreach (ChunkPos chunkPos in pendingRebuildChunks)
-        {
-            rebuildQueueSnapshot.Add(chunkPos);
-        }
-
-        pendingRebuildChunks.Clear();
-
         int maxChunkRebuildsPerFrame = Mathf.Max(0, worldSettings.MaxChunkRebuildsPerFrame);
-        int rebuildCount = Mathf.Min(maxChunkRebuildsPerFrame, rebuildQueueSnapshot.Count);
-
-        int rebuildsPerformed = 0;
-        for (int i = 0; i < rebuildCount; i++)
-        {
-            ChunkPos chunkPos = rebuildQueueSnapshot[i];
-            if (!renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
-            {
-                continue;
-            }
-
-            // 재빌드 큐에 들어있는 동안 이웃 구성이 바뀌었을 수 있으므로,
-            // 실제 RebuildMesh 직전에 최신 neighborhood를 다시 연결합니다.
-            renderer.UpdateNeighborhood(CreateNeighborhood(chunkPos));
-            renderer.RebuildMesh();
-            rebuildsPerformed++;
-        }
-
+        int rebuildsPerformed = meshBuildQueue.ProcessFrameBudget(maxChunkRebuildsPerFrame, processQueuedMeshBuildCallback);
         VoxelPerformanceStats.RecordChunkRebuildCount(rebuildsPerformed);
-
-        for (int i = rebuildCount; i < rebuildQueueSnapshot.Count; i++)
-        {
-            pendingRebuildChunks.Add(rebuildQueueSnapshot[i]);
-        }
-
-        rebuildQueueSnapshot.Clear();
     }
 
     private ChunkData CreateChunkData(ChunkPos chunkPos)
@@ -638,6 +611,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void ClearRuntimeChunks()
     {
+        meshBuildQueue.Clear();
         chunkControllerPool?.Clear();
         for (int i = transform.childCount - 1; i >= 0; i--)
         {
@@ -739,8 +713,18 @@ public sealed class ChunkManager : MonoBehaviour
     {
         if (renderers.ContainsKey(chunkPos))
         {
-            pendingRebuildChunks.Add(chunkPos);
+            meshBuildQueue.QueueRebuild(chunkPos);
         }
+    }
+
+    private void QueueChunkInitialBuild(ChunkPos chunkPos)
+    {
+        if (!renderers.ContainsKey(chunkPos))
+        {
+            return;
+        }
+
+        meshBuildQueue.QueueInitialBuild(chunkPos);
     }
 
     private void RebuildChunkImmediately(ChunkPos chunkPos)
@@ -752,6 +736,18 @@ public sealed class ChunkManager : MonoBehaviour
 
         renderer.UpdateNeighborhood(CreateNeighborhood(chunkPos));
         renderer.RebuildMesh();
+    }
+
+    private bool ProcessQueuedMeshBuild(ChunkPos chunkPos)
+    {
+        if (!renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
+        {
+            return false;
+        }
+
+        renderer.UpdateNeighborhood(CreateNeighborhood(chunkPos));
+        renderer.RebuildMesh();
+        return true;
     }
 
 }
