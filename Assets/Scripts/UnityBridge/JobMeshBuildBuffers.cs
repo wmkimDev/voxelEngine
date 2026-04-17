@@ -1,10 +1,13 @@
 using Unity.Collections;
+using System.Collections.Generic;
 
 // Job 메셔가 공통으로 쓰는 입력/출력 Native 버퍼 묶음입니다.
 // 중심/이웃 청크 voxel 버퍼와 메시 결과 버퍼를 한 곳에 모아서
 // JobNaive와 JobGreedy가 같은 준비/정리 흐름을 재사용하게 합니다.
 public struct JobMeshBuildBuffers
 {
+    private static readonly Dictionary<int, byte[]> EmptyVoxelBuffersByLength = new();
+
     public int Size;
     public NativeChunkNeighborhood Neighborhood;
     public NativeList<Vec3> Vertices;
@@ -115,12 +118,8 @@ public struct JobMeshBuildBuffers
         if (chunkData == null)
         {
             // 이 방향 청크가 없으면 "전부 Air인 청크"처럼 버퍼를 채웁니다.
-            // 그러면 Job은 이 방향을 빈 공간으로 보고 외곽 면을 만들 수 있습니다.
-            for (int i = 0; i < buffer.Length; i++)
-            {
-                buffer[i] = VoxelType.Air;
-            }
-
+            // 길이별 0-filled 버퍼를 재사용해 요소 단위 루프 없이 bulk copy 합니다.
+            NativeArray<byte>.Copy(GetEmptyVoxelBuffer(buffer.Length), buffer);
             return;
         }
 
@@ -143,5 +142,16 @@ public struct JobMeshBuildBuffers
                 }
             }
         }
+    }
+
+    private static byte[] GetEmptyVoxelBuffer(int length)
+    {
+        if (!EmptyVoxelBuffersByLength.TryGetValue(length, out byte[] emptyBuffer))
+        {
+            emptyBuffer = new byte[length];
+            EmptyVoxelBuffersByLength.Add(length, emptyBuffer);
+        }
+
+        return emptyBuffer;
     }
 }
