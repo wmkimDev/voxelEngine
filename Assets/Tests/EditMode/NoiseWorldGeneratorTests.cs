@@ -97,6 +97,44 @@ public sealed class NoiseWorldGeneratorTests
         Assert.That(maxHeight - minHeight, Is.GreaterThanOrEqualTo(20));
     }
 
+    // 평원과 산맥을 확실히 구분하려면, 장거리 샘플에서 낮은 구간과 높은 구간이
+    // 같은 비율로 섞이지 않고 충분히 벌어져 있어야 합니다.
+    [Test]
+    public void GetSurfaceHeight_SeparatesPlainsFromMountainRanges()
+    {
+        var generator = new NoiseWorldGenerator(new NoiseWorldGeneratorSettings(
+            seed: 12345,
+            noiseScale: 34f,
+            baseHeight: 18,
+            heightAmplitude: 32,
+            beachHeight: 5,
+            topSoilDepth: 4,
+            topSoilDepthVariation: 2,
+            caveNoiseScale: 32f,
+            caveThreshold: 0.9f,
+            caveSurfaceClearance: 7));
+
+        int plainSamples = 0;
+        int mountainSamples = 0;
+
+        for (int x = 0; x <= 4096; x += 32)
+        {
+            int sampledHeight = generator.GetSurfaceHeight(x, 768);
+            if (sampledHeight <= 28)
+            {
+                plainSamples++;
+            }
+
+            if (sampledHeight >= 48)
+            {
+                mountainSamples++;
+            }
+        }
+
+        Assert.That(plainSamples, Is.GreaterThan(8));
+        Assert.That(mountainSamples, Is.GreaterThan(8));
+    }
+
     private static int FindSurfaceY(ChunkData chunk, int x, int z)
     {
         for (int y = chunk.Size - 1; y >= 0; y--)

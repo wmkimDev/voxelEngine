@@ -13,8 +13,8 @@ MonoBehaviour:
   m_Name: VoxelWorldSettings
   m_EditorClassIdentifier: VoxelEngine.UnityBridge::VoxelWorldSettings
   streamingMode: 1
-  viewDistanceInChunks: 12
-  unloadDistanceInChunks: 14
+  viewDistanceInChunks: 16
+  unloadDistanceInChunks: 18
   colliderDistanceInChunks: 2
   cachedChunkCount: 2048
   minLayerY: 0
@@ -32,6 +32,6 @@ MonoBehaviour:
   beachHeight: 5
   topSoilDepth: 4
   topSoilDepthVariation: 2
-  caveNoiseScale: 24
-  caveThreshold: 0.84
-  caveSurfaceClearance: 6
+  caveNoiseScale: 36
+  caveThreshold: 0.92
+  caveSurfaceClearance: 7

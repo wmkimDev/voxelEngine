@@ -40,29 +40,37 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
         float sampleX = (worldX + (Seed * 37.13f)) / settings.NoiseScale;
         float sampleZ = (worldZ + (Seed * 91.71f)) / settings.NoiseScale;
 
-        // 첫 번째/두 번째 노이즈는 현재 위치의 완만한 평지와 잔굴곡을 만듭니다.
-        // 가까이서는 비교적 부드러운 평지로 보이고, 아래의 산맥 마스크가 켜지는 지역에서만
-        // 큰 봉우리들이 멀리 솟아오르도록 레이어를 나눕니다.
-        float broadNoise = ValueNoise(sampleX, sampleZ);
-        float detailNoise = ValueNoise(sampleX * 2.5f + 17.3f, sampleZ * 2.5f + 42.7f);
-        float rollingNoise = (broadNoise * 0.75f) + (detailNoise * 0.25f);
+        // 먼저 "평원용 높이"를 만듭니다.
+        // 이 값은 전체적으로 완만하고 낮게 유지해서, 산맥 지역이 아닌 곳에서는
+        // 초원/평지/언덕처럼 읽히도록 의도적으로 진폭을 작게 둡니다.
+        float plainBroadNoise = ValueNoise(sampleX * 0.95f, sampleZ * 0.95f);
+        float plainDetailNoise = ValueNoise((sampleX * 2.8f) + 17.3f, (sampleZ * 2.8f) + 42.7f);
+        float plainsNoise = (plainBroadNoise * 0.82f) + (plainDetailNoise * 0.18f);
+        float plainsHeight = settings.HeightAmplitude * ((plainsNoise * 0.16f) + 0.08f);
 
-        // 평지 영역은 높이 변화를 일부 눌러서, 마인크래프트처럼 가까운 곳은 비교적 걸어 다니기 쉬운
-        // 언덕/초원 감각을 유지합니다.
-        float rollingHeight = settings.HeightAmplitude * ((rollingNoise * 0.55f) + 0.15f);
-
-        // 아주 저주파 노이즈로 "산맥이 나타나는 지역"을 먼저 정합니다.
-        // 이 값이 낮은 곳은 평지 위주, 높은 곳은 큰 산이 솟는 지역이 됩니다.
+        // 아주 저주파 노이즈로 "산맥이 등장하는 지역"을 먼저 정합니다.
+        // 문턱값을 지나기 전까지는 거의 평원처럼 남기고,
+        // 문턱을 넘은 뒤에는 산맥 형태가 빠르게 강해지도록 마스크를 더 날카롭게 만듭니다.
         float mountainRegionNoise = ValueNoise((sampleX * 0.18f) - 73.1f, (sampleZ * 0.18f) + 41.7f);
-        float mountainRegion = Clamp01((mountainRegionNoise - 0.52f) / 0.48f);
-        mountainRegion *= mountainRegion;
+        float mountainRegion = SmoothClampRange(mountainRegionNoise, 0.6f, 0.82f);
+        mountainRegion *= mountainRegion * mountainRegion;
 
-        // 산맥 지역 안에서는 ridged noise로 뾰족한 산 능선을 만듭니다.
-        float mountainShapeNoise = ValueNoise((sampleX * 0.75f) + 89.4f, (sampleZ * 0.75f) + 12.6f);
-        float mountainRidgedNoise = 1f - Math.Abs((mountainShapeNoise * 2f) - 1f);
-        float mountainHeight = mountainRegion * mountainRidgedNoise * settings.HeightAmplitude * 1.6f;
+        // 산맥 지역은 저주파 "산 덩어리"와 중주파 "능선"을 함께 써서,
+        // 멀리서도 산맥처럼 보이는 큰 실루엣과 가까이서 읽히는 골짜기/능선을 동시에 만듭니다.
+        float mountainMassNoise = ValueNoise((sampleX * 0.42f) - 25.4f, (sampleZ * 0.42f) + 61.7f);
+        float mountainMassHeight = settings.HeightAmplitude * mountainRegion * ((mountainMassNoise * 0.5f) + 0.35f) * 0.7f;
 
-        return settings.BaseHeight + (int)Math.Floor(rollingHeight + mountainHeight + 0.5f);
+        float ridgePrimaryNoise = ValueNoise((sampleX * 0.82f) + 89.4f, (sampleZ * 0.82f) + 12.6f);
+        float ridgeSecondaryNoise = ValueNoise((sampleX * 1.74f) - 31.8f, (sampleZ * 1.74f) + 57.1f);
+        float ridgePrimary = 1f - Math.Abs((ridgePrimaryNoise * 2f) - 1f);
+        float ridgeSecondary = 1f - Math.Abs((ridgeSecondaryNoise * 2f) - 1f);
+        float mountainRidgeHeight = settings.HeightAmplitude * mountainRegion * ((ridgePrimary * 1.1f) + (ridgeSecondary * 0.45f));
+
+        // 산맥 지역에선 평원 진폭을 줄이고, 대신 큰 산 실루엣이 분명히 읽히게 합니다.
+        float blendedPlainsHeight = plainsHeight * (1f - (mountainRegion * 0.7f));
+        float finalHeight = blendedPlainsHeight + mountainMassHeight + mountainRidgeHeight;
+
+        return settings.BaseHeight + (int)Math.Floor(finalHeight + 0.5f);
     }
 
     private byte GetVoxelType(int worldX, int worldY, int worldZ, int surfaceHeight)
@@ -110,12 +118,29 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
             return false;
         }
 
+        // 3D 동굴 노이즈를 바로 쓰면 월드 전역에 스파게티처럼 퍼지기 쉽습니다.
+        // 먼저 아주 저주파 2D 마스크로 "이 지역은 동굴이 날 만한가"를 한 번 더 거른 뒤,
+        // 그 안에서만 실제 동굴을 뚫어 동굴 출현 구역 자체를 드물게 만듭니다.
+        float caveRegionX = (worldX + (Seed * 5.19f)) / (settings.CaveNoiseScale * 3.6f);
+        float caveRegionZ = (worldZ + (Seed * 9.47f)) / (settings.CaveNoiseScale * 3.6f);
+        float caveRegionNoise = ValueNoise(caveRegionX, caveRegionZ);
+        float caveRegionMask = SmoothClampRange(caveRegionNoise, 0.76f, 0.92f);
+        caveRegionMask *= caveRegionMask;
+        if (caveRegionMask <= 0f)
+        {
+            return false;
+        }
+
         float sampleX = (worldX + (Seed * 11.17f)) / settings.CaveNoiseScale;
         float sampleY = (worldY + (Seed * 23.71f)) / settings.CaveNoiseScale;
         float sampleZ = (worldZ + (Seed * 47.33f)) / settings.CaveNoiseScale;
         float caveNoise = ValueNoise(sampleX, sampleY, sampleZ);
         float ridgedNoise = 1f - Math.Abs((caveNoise * 2f) - 1f);
-        return ridgedNoise >= settings.CaveThreshold;
+
+        // 지역 마스크가 약한 곳은 사실상 더 높은 threshold가 필요하도록 만들어,
+        // "가끔 보이는 큰 동굴 구역" 위주로 남기고 잔가닥 동굴은 줄입니다.
+        float effectiveThreshold = settings.CaveThreshold + ((1f - caveRegionMask) * 0.08f);
+        return ridgedNoise >= effectiveThreshold;
     }
 
     private float ValueNoise(float x, float z)
@@ -211,5 +236,20 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
     private static float Clamp01(float value)
     {
         return Math.Max(0f, Math.Min(1f, value));
+    }
+
+    private static float SmoothClampRange(float value, float min, float max)
+    {
+        if (value <= min)
+        {
+            return 0f;
+        }
+
+        if (value >= max)
+        {
+            return 1f;
+        }
+
+        return SmoothStep((value - min) / (max - min));
     }
 }
