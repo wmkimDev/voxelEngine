@@ -124,6 +124,17 @@ public struct JobMeshBuildBuffers
             return;
         }
 
+        if (chunkData is IRawVoxelBufferSource rawVoxelBufferSource)
+        {
+            byte[] rawVoxels = rawVoxelBufferSource.GetRawVoxelBuffer();
+            for (int i = 0; i < rawVoxels.Length; i++)
+            {
+                buffer[i] = rawVoxels[i];
+            }
+
+            return;
+        }
+
         int index = 0;
         for (int z = 0; z < chunkData.Size; z++)
         {
@@ -135,6 +146,5 @@ public struct JobMeshBuildBuffers
                 }
             }
         }
-
     }
 }

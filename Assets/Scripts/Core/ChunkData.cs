@@ -1,6 +1,6 @@
 using System;
 
-public sealed class ChunkData : IChunkDataStore
+public sealed class ChunkData : IChunkDataStore, IRawVoxelBufferSource
 {
     public const int DefaultSize = 16;
 
@@ -53,5 +53,10 @@ public sealed class ChunkData : IChunkDataStore
     {
         // 3차원 좌표를 1차원 배열 인덱스로 변환합니다.
         return pos.X + (pos.Y * Size) + (pos.Z * Size * Size);
+    }
+
+    public byte[] GetRawVoxelBuffer()
+    {
+        return voxels;
     }
 }
