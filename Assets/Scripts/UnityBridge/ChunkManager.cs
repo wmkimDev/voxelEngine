@@ -410,7 +410,12 @@ public sealed class ChunkManager : MonoBehaviour
     private void ConfigureEditController()
     {
         EnsureEditController();
-        editController.Initialize(editCamera, worldSettings, this);
+        editController.Initialize(editCamera, worldSettings, this, this);
+    }
+
+    public void ProcessPendingRebuildsImmediately()
+    {
+        ProcessPendingRebuilds();
     }
 
     private ChunkPos GetStreamingCenterChunk()
@@ -679,8 +684,8 @@ public sealed class ChunkManager : MonoBehaviour
 
         int edge = chunkData.Size - 1;
 
-        // 편집된 현재 청크도 즉시 재빌드하지 않고 큐에 넣어 한 프레임에 한 번만 처리합니다.
-        QueueChunkRebuild(chunkPos);
+        // 사용자가 방금 편집한 현재 청크는 바로 다시 보이는 게 중요하므로 즉시 재빌드합니다.
+        RebuildChunkImmediately(chunkPos);
 
         // 경계 voxel이 바뀌면 이웃 청크의 경계 면 노출 여부도 달라집니다.
         // 그래서 경계에 닿았을 때는 맞닿은 이웃도 함께 큐에 넣습니다.
@@ -721,6 +726,17 @@ public sealed class ChunkManager : MonoBehaviour
         {
             pendingRebuildChunks.Add(chunkPos);
         }
+    }
+
+    private void RebuildChunkImmediately(ChunkPos chunkPos)
+    {
+        if (!renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
+        {
+            return;
+        }
+
+        renderer.UpdateNeighborhood(CreateNeighborhood(chunkPos));
+        renderer.RebuildMesh();
     }
 
 }

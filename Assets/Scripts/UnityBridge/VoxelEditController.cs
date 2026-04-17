@@ -7,11 +7,13 @@ public sealed class VoxelEditController : MonoBehaviour
     private Camera editCamera;
     private VoxelWorldSettings worldSettings;
     private Object logContext;
+    private ChunkManager chunkManager;
 
-    public void Initialize(Camera camera, VoxelWorldSettings settings, Object context)
+    public void Initialize(Camera camera, VoxelWorldSettings settings, ChunkManager manager, Object context)
     {
         editCamera = camera;
         worldSettings = settings;
+        chunkManager = manager;
         logContext = context != null ? context : this;
     }
 
@@ -56,6 +58,9 @@ public sealed class VoxelEditController : MonoBehaviour
             return;
         }
 
-        editInteractor.TryEditFromHit(hit, place.Value, worldSettings.PlaceVoxelType);
+        if (editInteractor.TryEditFromHit(hit, place.Value, worldSettings.PlaceVoxelType) && chunkManager != null)
+        {
+            chunkManager.ProcessPendingRebuildsImmediately();
+        }
     }
 }
