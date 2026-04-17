@@ -52,7 +52,7 @@ public sealed class ChunkManager : MonoBehaviour
     private readonly HashSet<ChunkPos> chunksNeedingRebuildBuffer = new();
     private readonly List<ChunkPos> chunksToLoadBuffer = new();
     private readonly HashSet<ChunkPos> visibleChunkPositionsBuffer = new();
-    private readonly Dictionary<ChunkPos, float> screenPriorityScoresBuffer = new();
+    private readonly Dictionary<ChunkPos, float> forwardPriorityScoresBuffer = new();
     private readonly HashSet<ChunkPos> currentUnloadProtectedChunkSetBuffer = new();
     private ObjectPool<ChunkMeshController> chunkControllerPool;
 
@@ -487,14 +487,15 @@ public sealed class ChunkManager : MonoBehaviour
         streamingPriorityEvaluator.CollectForwardPriorityScores(
             cameraToUse,
             chunksToLoadBuffer,
-            screenPriorityScoresBuffer);
-        loadScheduler.SortByVisibilityAndDistanceInPlace(
+            forwardPriorityScoresBuffer);
+        int maxChunkLoadsPerFrame = worldSettings.MaxChunkLoadsPerFrame;
+        loadScheduler.SelectTopByVisibilityAndDistanceInPlace(
             chunksToLoadBuffer,
             centerChunk,
             visibleChunkPositionsBuffer,
-            screenPriorityScoresBuffer);
-        int maxChunkLoadsPerFrame = worldSettings.MaxChunkLoadsPerFrame;
-        int loadCount = Mathf.Min(maxChunkLoadsPerFrame, chunksToLoadBuffer.Count);
+            forwardPriorityScoresBuffer,
+            maxChunkLoadsPerFrame);
+        int loadCount = chunksToLoadBuffer.Count;
         VoxelPerformanceStats.RecordChunkLoadCount(loadCount);
 
         for (int i = 0; i < loadCount; i++)

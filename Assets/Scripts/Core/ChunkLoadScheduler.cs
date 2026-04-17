@@ -2,6 +2,8 @@ using System.Collections.Generic;
 
 public sealed class ChunkLoadScheduler
 {
+    private readonly List<ChunkPos> bestChunkPositionsBuffer = new();
+
     // 스케줄러는 "무엇을 로드할지"가 아니라 "어떤 순서로 로드할지"만 결정합니다.
     // 이 책임을 분리해두면 나중에 우선순위 큐, 시간 예산, 비동기 Job으로 바꾸기 쉽습니다.
     public List<ChunkPos> SortByDistance(IEnumerable<ChunkPos> chunkPositions, ChunkPos centerChunk)
@@ -28,25 +30,61 @@ public sealed class ChunkLoadScheduler
         HashSet<ChunkPos> preferredChunkPositions,
         Dictionary<ChunkPos, float> forwardPriorityScores)
     {
-        // 카메라 프러스텀 안쪽 청크를 먼저 만들고,
-        // 그 안에서는 카메라가 정면으로 보고 있는 청크를 우선해 회전 시 바라보는 방향부터 월드가 채워지게 합니다.
-        // 그래도 우선순위가 같으면 가까운 청크를 먼저 만들어 기존 거리 기반 감각을 유지합니다.
-        chunkPositions.Sort((a, b) =>
+        chunkPositions.Sort((a, b) => CompareChunkPriority(a, b, centerChunk, preferredChunkPositions, forwardPriorityScores));
+    }
+
+    public void SelectTopByVisibilityAndDistanceInPlace(
+        List<ChunkPos> chunkPositions,
+        ChunkPos centerChunk,
+        HashSet<ChunkPos> preferredChunkPositions,
+        Dictionary<ChunkPos, float> forwardPriorityScores,
+        int maxCount)
+    {
+        if (maxCount <= 0)
         {
-            int visibilityCompare = CompareVisibilityPriority(a, b, preferredChunkPositions);
-            if (visibilityCompare != 0)
+            chunkPositions.Clear();
+            return;
+        }
+
+        if (chunkPositions.Count <= maxCount)
+        {
+            SortByVisibilityAndDistanceInPlace(chunkPositions, centerChunk, preferredChunkPositions, forwardPriorityScores);
+            return;
+        }
+
+        bestChunkPositionsBuffer.Clear();
+
+        foreach (ChunkPos candidate in chunkPositions)
+        {
+            if (bestChunkPositionsBuffer.Count < maxCount)
             {
-                return visibilityCompare;
+                bestChunkPositionsBuffer.Add(candidate);
+                continue;
             }
 
-            int forwardCompare = CompareForwardPriority(a, b, forwardPriorityScores);
-            if (forwardCompare != 0)
+            int worstIndex = 0;
+            for (int i = 1; i < bestChunkPositionsBuffer.Count; i++)
             {
-                return forwardCompare;
+                if (CompareChunkPriority(
+                        bestChunkPositionsBuffer[worstIndex],
+                        bestChunkPositionsBuffer[i],
+                        centerChunk,
+                        preferredChunkPositions,
+                        forwardPriorityScores) < 0)
+                {
+                    worstIndex = i;
+                }
             }
 
-            return GetDistanceSquared(a, centerChunk).CompareTo(GetDistanceSquared(b, centerChunk));
-        });
+            if (CompareChunkPriority(candidate, bestChunkPositionsBuffer[worstIndex], centerChunk, preferredChunkPositions, forwardPriorityScores) < 0)
+            {
+                bestChunkPositionsBuffer[worstIndex] = candidate;
+            }
+        }
+
+        chunkPositions.Clear();
+        chunkPositions.AddRange(bestChunkPositionsBuffer);
+        chunkPositions.Sort((a, b) => CompareChunkPriority(a, b, centerChunk, preferredChunkPositions, forwardPriorityScores));
     }
 
     private static int CompareVisibilityPriority(
@@ -90,5 +128,47 @@ public sealed class ChunkLoadScheduler
         int dy = chunkPos.Y - centerChunk.Y;
         int dz = chunkPos.Z - centerChunk.Z;
         return (dx * dx) + (dy * dy) + (dz * dz);
+    }
+
+    private static int CompareChunkPriority(
+        ChunkPos a,
+        ChunkPos b,
+        ChunkPos centerChunk,
+        HashSet<ChunkPos> preferredChunkPositions,
+        Dictionary<ChunkPos, float> forwardPriorityScores)
+    {
+        // 먼저 플레이어 주변부터 안정적으로 채우기 위해 거리 가까운 청크를 1순위로 둡니다.
+        // 같은 거리권 안에서만 "현재 화면에 보이는가"와 "정면에 가까운가"를 tie-breaker로 사용합니다.
+        int distanceCompare = GetDistanceSquared(a, centerChunk).CompareTo(GetDistanceSquared(b, centerChunk));
+        if (distanceCompare != 0)
+        {
+            return distanceCompare;
+        }
+
+        int visibilityCompare = CompareVisibilityPriority(a, b, preferredChunkPositions);
+        if (visibilityCompare != 0)
+        {
+            return visibilityCompare;
+        }
+
+        int forwardCompare = CompareForwardPriority(a, b, forwardPriorityScores);
+        if (forwardCompare != 0)
+        {
+            return forwardCompare;
+        }
+
+        int xCompare = a.X.CompareTo(b.X);
+        if (xCompare != 0)
+        {
+            return xCompare;
+        }
+
+        int yCompare = a.Y.CompareTo(b.Y);
+        if (yCompare != 0)
+        {
+            return yCompare;
+        }
+
+        return a.Z.CompareTo(b.Z);
     }
 }
