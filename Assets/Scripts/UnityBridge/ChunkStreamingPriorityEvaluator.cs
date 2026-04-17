@@ -7,15 +7,20 @@ using UnityEngine;
 // 스트리밍 조율과 시야 기반 점수 계산 책임을 분리합니다.
 public sealed class ChunkStreamingPriorityEvaluator
 {
-    public HashSet<ChunkPos> GetVisibleChunkPositions(Camera cameraToUse, IReadOnlyCollection<ChunkPos> chunkPositions)
+    private readonly Plane[] frustumPlanes = new Plane[6];
+
+    public void CollectVisibleChunkPositions(
+        Camera cameraToUse,
+        IReadOnlyCollection<ChunkPos> chunkPositions,
+        HashSet<ChunkPos> visibleChunks)
     {
+        visibleChunks.Clear();
         if (cameraToUse == null || chunkPositions.Count == 0)
         {
-            return null;
+            return;
         }
 
-        Plane[] frustumPlanes = GeometryUtility.CalculateFrustumPlanes(cameraToUse);
-        var visibleChunks = new HashSet<ChunkPos>();
+        GeometryUtility.CalculateFrustumPlanes(cameraToUse, frustumPlanes);
         int chunkSize = ChunkData.DefaultSize;
 
         foreach (ChunkPos chunkPos in chunkPositions)
@@ -32,18 +37,19 @@ public sealed class ChunkStreamingPriorityEvaluator
                 visibleChunks.Add(chunkPos);
             }
         }
-
-        return visibleChunks;
     }
 
-    public Dictionary<ChunkPos, float> GetScreenPriorityScores(Camera cameraToUse, IReadOnlyCollection<ChunkPos> chunkPositions)
+    public void CollectScreenPriorityScores(
+        Camera cameraToUse,
+        IReadOnlyCollection<ChunkPos> chunkPositions,
+        Dictionary<ChunkPos, float> screenScores)
     {
+        screenScores.Clear();
         if (cameraToUse == null || chunkPositions.Count == 0)
         {
-            return null;
+            return;
         }
 
-        var screenScores = new Dictionary<ChunkPos, float>(chunkPositions.Count);
         int chunkSize = ChunkData.DefaultSize;
 
         foreach (ChunkPos chunkPos in chunkPositions)
@@ -65,7 +71,5 @@ public sealed class ChunkStreamingPriorityEvaluator
             float dy = viewportPoint.y - 0.5f;
             screenScores[chunkPos] = -((dx * dx) + (dy * dy));
         }
-
-        return screenScores;
     }
 }

@@ -47,6 +47,13 @@ public sealed class ChunkManager : MonoBehaviour
     private readonly HashSet<ChunkPos> pendingRebuildChunks = new();
     private readonly List<ChunkPos> rebuildQueueSnapshot = new();
 
+    // Update() 핫패스에서 매 프레임 재사용하는 작업 버퍼들입니다.
+    private readonly HashSet<ChunkPos> chunksNeedingRebuildBuffer = new();
+    private readonly List<ChunkPos> chunksToLoadBuffer = new();
+    private readonly HashSet<ChunkPos> visibleChunkPositionsBuffer = new();
+    private readonly Dictionary<ChunkPos, float> screenPriorityScoresBuffer = new();
+    private readonly HashSet<ChunkPos> currentUnloadProtectedChunkSetBuffer = new();
+
     public int LoadedChunkCount => chunks.Count;
     public Vector3 StreamingTargetPosition => GetStreamingTargetPosition();
     public ChunkPos StreamingTargetChunk => GetStreamingCenterChunk();
@@ -242,7 +249,8 @@ public sealed class ChunkManager : MonoBehaviour
         // requiredChunks는 "지금 새로 로드해야 하는 청크 목록"이고,
         // unloadProtectedChunks는 "아직 유지해도 되는 청크 목록"입니다.
         // 이렇게 로드 반경과 언로드 반경을 분리해 경계에서 생겼다 사라지는 떨림을 줄입니다.
-        var chunksNeedingRebuild = new HashSet<ChunkPos>();
+        chunksNeedingRebuildBuffer.Clear();
+        HashSet<ChunkPos> chunksNeedingRebuild = chunksNeedingRebuildBuffer;
         if (centerChanged || force)
         {
             CollectRemovedUnloadProtectedChunks(unloadProtectedChunks, removedUnloadProtectedChunks);
@@ -397,32 +405,38 @@ public sealed class ChunkManager : MonoBehaviour
         ChunkPos centerChunk,
         HashSet<ChunkPos> chunksNeedingRebuild)
     {
-        var chunksToLoad = new List<ChunkPos>();
+        chunksToLoadBuffer.Clear();
         foreach (ChunkPos chunkPos in requiredChunks)
         {
             if (!chunks.ContainsKey(chunkPos))
             {
-                chunksToLoad.Add(chunkPos);
+                chunksToLoadBuffer.Add(chunkPos);
             }
         }
 
         Camera cameraToUse = editCamera != null ? editCamera : Camera.main;
-        HashSet<ChunkPos> visibleChunkPositions = streamingPriorityEvaluator.GetVisibleChunkPositions(cameraToUse, chunksToLoad);
-        Dictionary<ChunkPos, float> screenPriorityScores = streamingPriorityEvaluator.GetScreenPriorityScores(cameraToUse, chunksToLoad);
-        List<ChunkPos> sortedChunks = loadScheduler.SortByVisibilityAndDistance(
-            chunksToLoad,
+        streamingPriorityEvaluator.CollectVisibleChunkPositions(
+            cameraToUse,
+            chunksToLoadBuffer,
+            visibleChunkPositionsBuffer);
+        streamingPriorityEvaluator.CollectScreenPriorityScores(
+            cameraToUse,
+            chunksToLoadBuffer,
+            screenPriorityScoresBuffer);
+        loadScheduler.SortByVisibilityAndDistanceInPlace(
+            chunksToLoadBuffer,
             centerChunk,
-            visibleChunkPositions,
-            screenPriorityScores);
+            visibleChunkPositionsBuffer,
+            screenPriorityScoresBuffer);
         int maxChunkLoadsPerFrame = worldSettings.MaxChunkLoadsPerFrame;
-        int loadCount = Mathf.Min(maxChunkLoadsPerFrame, sortedChunks.Count);
+        int loadCount = Mathf.Min(maxChunkLoadsPerFrame, chunksToLoadBuffer.Count);
         VoxelPerformanceStats.RecordChunkLoadCount(loadCount);
 
         for (int i = 0; i < loadCount; i++)
         {
             // 이번 단계에서는 생성과 메시 빌드를 모두 메인 스레드에서 처리합니다.
             // 일부러 프레임당 개수를 제한해 끊김을 관찰하고, 다음 단계의 비동기화 필요성을 확인합니다.
-            ChunkPos chunkPos = sortedChunks[i];
+            ChunkPos chunkPos = chunksToLoadBuffer[i];
             ChunkData chunkData = CreateChunkData(chunkPos);
             chunks.Add(chunkPos, chunkData);
             CreateChunkMeshController(chunkPos, CreateNeighborhood(chunkPos));
@@ -450,11 +464,15 @@ public sealed class ChunkManager : MonoBehaviour
         List<ChunkPos> removedChunks)
     {
         removedChunks.Clear();
-        var currentSet = new HashSet<ChunkPos>(currentUnloadProtectedChunks);
+        currentUnloadProtectedChunkSetBuffer.Clear();
+        foreach (ChunkPos chunkPos in currentUnloadProtectedChunks)
+        {
+            currentUnloadProtectedChunkSetBuffer.Add(chunkPos);
+        }
 
         foreach (ChunkPos chunkPos in activeUnloadProtectedChunks)
         {
-            if (!currentSet.Contains(chunkPos))
+            if (!currentUnloadProtectedChunkSetBuffer.Contains(chunkPos))
             {
                 removedChunks.Add(chunkPos);
             }

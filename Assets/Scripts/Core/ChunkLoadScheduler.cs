@@ -18,11 +18,20 @@ public sealed class ChunkLoadScheduler
         Dictionary<ChunkPos, float> screenPriorityScores)
     {
         var sorted = new List<ChunkPos>(chunkPositions);
+        SortByVisibilityAndDistanceInPlace(sorted, centerChunk, preferredChunkPositions, screenPriorityScores);
+        return sorted;
+    }
 
+    public void SortByVisibilityAndDistanceInPlace(
+        List<ChunkPos> chunkPositions,
+        ChunkPos centerChunk,
+        HashSet<ChunkPos> preferredChunkPositions,
+        Dictionary<ChunkPos, float> screenPriorityScores)
+    {
         // 카메라 프러스텀 안쪽 청크를 먼저 만들고,
         // 그 안에서는 화면 중앙에 더 가까운 청크를 우선해 회전 시 시야 중심부터 월드가 채워지게 합니다.
         // 그래도 우선순위가 같으면 가까운 청크를 먼저 만들어 기존 거리 기반 감각을 유지합니다.
-        sorted.Sort((a, b) =>
+        chunkPositions.Sort((a, b) =>
         {
             int visibilityCompare = CompareVisibilityPriority(a, b, preferredChunkPositions);
             if (visibilityCompare != 0)
@@ -38,8 +47,6 @@ public sealed class ChunkLoadScheduler
 
             return GetDistanceSquared(a, centerChunk).CompareTo(GetDistanceSquared(b, centerChunk));
         });
-
-        return sorted;
     }
 
     private static int CompareVisibilityPriority(
