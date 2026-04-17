@@ -34,6 +34,11 @@ public sealed class ChunkMeshController : MonoBehaviour
     public bool HasActiveColliderMesh => GetMeshPresenter().HasActiveColliderMesh;
     public bool HasRenderableMesh => GetMeshPresenter().HasRenderableMesh;
 
+    private void Awake()
+    {
+        UpdateLateUpdateSubscription();
+    }
+
     public void Initialize(
         ChunkNeighborhood chunkNeighborhood,
         IMeshBuilder builder,
@@ -50,7 +55,10 @@ public sealed class ChunkMeshController : MonoBehaviour
         if (rebuildImmediately)
         {
             RebuildMesh();
+            return;
         }
+
+        UpdateLateUpdateSubscription();
     }
 
     public void UpdateNeighborhood(ChunkNeighborhood chunkNeighborhood)
@@ -94,6 +102,7 @@ public sealed class ChunkMeshController : MonoBehaviour
             meshBuildState.PendingHandle = null;
         }
 
+        UpdateLateUpdateSubscription();
     }
 
     public void RebuildMesh()
@@ -140,6 +149,7 @@ public sealed class ChunkMeshController : MonoBehaviour
         meshBuildState.RebuildRequestedWhilePending = false;
         chunkData = null;
         neighborhood = default;
+        UpdateLateUpdateSubscription();
         GetMeshPresenter().ResetForPooling();
 
         if (TryGetComponent(out ChunkEditInteractor editInteractor))
@@ -152,6 +162,7 @@ public sealed class ChunkMeshController : MonoBehaviour
     {
         BeginMeshBuildTiming();
         meshBuildState.PendingHandle = meshBuilder.Schedule(neighborhood);
+        UpdateLateUpdateSubscription();
     }
 
     private void CompletePendingMeshBuild()
@@ -166,7 +177,10 @@ public sealed class ChunkMeshController : MonoBehaviour
         {
             meshBuildState.RebuildRequestedWhilePending = false;
             ScheduleMeshBuild();
+            return;
         }
+
+        UpdateLateUpdateSubscription();
     }
     
     private ChunkMeshPresenter GetMeshPresenter()
@@ -195,5 +209,15 @@ public sealed class ChunkMeshController : MonoBehaviour
 #else
         return 0d;
 #endif
+    }
+
+    private void UpdateLateUpdateSubscription()
+    {
+        if (!Application.isPlaying)
+        {
+            return;
+        }
+
+        enabled = meshBuildState.PendingHandle != null;
     }
 }
