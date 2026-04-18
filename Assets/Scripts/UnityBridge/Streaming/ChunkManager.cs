@@ -5,16 +5,6 @@ using UnityEngine.Pool;
 
 public sealed class ChunkManager : MonoBehaviour
 {
-    private static readonly ChunkPos[] NeighborChunkOffsets =
-    {
-        new ChunkPos(1, 0, 0),
-        new ChunkPos(-1, 0, 0),
-        new ChunkPos(0, 1, 0),
-        new ChunkPos(0, -1, 0),
-        new ChunkPos(0, 0, 1),
-        new ChunkPos(0, 0, -1),
-    };
-
     [SerializeField] private Transform streamingTarget;
     [SerializeField] private VoxelWorldSettings worldSettings;
     [SerializeField] private Camera editCamera;
@@ -29,28 +19,13 @@ public sealed class ChunkManager : MonoBehaviour
     // 로드/메싱/충돌/편집처럼 ChunkManager가 협력하는 보조 객체들입니다.
     private IMeshBuilder meshBuilder;
     private IWorldGenerator worldGenerator;
-    private IChunkStreamingPolicy loadStreamingPolicy;
-    private IChunkStreamingPolicy unloadStreamingPolicy;
-    private readonly ChunkLoadPlanner loadPlanner = new();
-    private readonly ChunkColliderPolicy chunkColliderPolicy = new();
+    private readonly ChunkStreamer chunkStreamer = new();
+    private readonly ChunkColliderUpdater chunkColliderUpdater = new();
     private VoxelEditController editController;
     private Func<ChunkPos, bool> processQueuedMeshBuildCallback;
 
-    // 스트리밍 중심 청크와, 그 기준으로 계산해 둔 required/unload 집합 캐시입니다.
-    private ChunkPos? currentCenterChunk;
-    private ChunkPos? cachedStreamingCenterChunk;
-    private readonly HashSet<ChunkPos> cachedRequiredChunks = new();
-    private readonly HashSet<ChunkPos> cachedUnloadProtectedChunks = new();
-    private readonly HashSet<ChunkPos> activeUnloadProtectedChunks = new();
-    private readonly List<ChunkPos> removedUnloadProtectedChunks = new();
-    private int cachedMissingRequiredChunkCount;
-
     // 새 청크의 첫 메싱과 기존 청크 재빌드를 예산 안에서 처리하는 큐입니다.
     private readonly ChunkMeshBuildQueue meshBuildQueue = new();
-
-    // Update() 핫패스에서 매 프레임 재사용하는 작업 버퍼들입니다.
-    private readonly HashSet<ChunkPos> chunksNeedingRebuildBuffer = new();
-    private readonly HashSet<ChunkPos> currentUnloadProtectedChunkSetBuffer = new();
     private ObjectPool<ChunkMeshController> chunkControllerPool;
 
     public int LoadedChunkCount => chunks.Count;
@@ -112,7 +87,7 @@ public sealed class ChunkManager : MonoBehaviour
             return;
         }
 
-        DrawColliderDebugGizmos();
+        chunkColliderUpdater.DrawDebugGizmos(renderers);
     }
 
     [ContextMenu("Rebuild Streaming World")]
@@ -137,7 +112,6 @@ public sealed class ChunkManager : MonoBehaviour
         ConfigureEditController();
         AlignStreamingTargetToSurface();
         RebuildStreamingPolicy();
-        currentCenterChunk = null;
         UpdateStreaming(force: true);
         ProcessPendingRebuilds();
         UpdateColliderUsage();
@@ -145,21 +119,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void RebuildStreamingPolicy()
     {
-        loadStreamingPolicy = CreateStreamingPolicy(worldSettings.ViewDistanceInChunks);
-        unloadStreamingPolicy = CreateStreamingPolicy(worldSettings.UnloadDistanceInChunks);
-        activeUnloadProtectedChunks.Clear();
-        removedUnloadProtectedChunks.Clear();
-        cachedStreamingCenterChunk = null;
-        cachedRequiredChunks.Clear();
-        cachedUnloadProtectedChunks.Clear();
-        cachedMissingRequiredChunkCount = 0;
-    }
-
-    private IChunkStreamingPolicy CreateStreamingPolicy(int horizontalRadius)
-    {
-        return worldSettings.ActiveStreamingMode == VoxelWorldSettings.StreamingMode.Radial
-            ? new RadialStreamingPolicy(horizontalRadius, worldSettings.MinLayerY, worldSettings.MaxLayerY)
-            : new SquareStreamingPolicy(horizontalRadius, worldSettings.MinLayerY, worldSettings.MaxLayerY);
+        chunkStreamer.RebuildPolicies(worldSettings);
     }
 
     private IMeshBuilder CreateMeshBuilder()
@@ -216,62 +176,26 @@ public sealed class ChunkManager : MonoBehaviour
             worldGenerator = CreateWorldGenerator();
         }
 
-        if (loadStreamingPolicy == null || unloadStreamingPolicy == null)
-        {
-            RebuildStreamingPolicy();
-        }
-
         // 런타임 중 설정값을 바꿔도 캐시 용량이 따라가도록 매 스트리밍 틱에서 동기화합니다.
         chunkDataCache.SetCapacity(worldSettings.CachedChunkCount);
 
         ChunkPos targetChunk = GetStreamingCenterChunk();
-        bool centerChanged = !currentCenterChunk.HasValue || !targetChunk.Equals(currentCenterChunk.Value);
-        bool canReuseCachedSets = !force
-            && !centerChanged
-            && cachedStreamingCenterChunk.HasValue
-            && cachedStreamingCenterChunk.Value.Equals(targetChunk);
-
-        if (canReuseCachedSets)
-        {
-        }
-        else
-        {
-            // 플레이어가 같은 중심 청크 안에 있는 동안 required/unload 집합은 바뀌지 않습니다.
-            // 그래서 중심 청크가 바뀌었을 때만 새로 만들고, 나머지 프레임에는 이전 결과를 재사용합니다.
-            loadStreamingPolicy.CollectRequiredChunks(targetChunk, cachedRequiredChunks);
-            unloadStreamingPolicy.CollectRequiredChunks(targetChunk, cachedUnloadProtectedChunks);
-            cachedStreamingCenterChunk = targetChunk;
-            RecountMissingRequiredChunks();
-        }
-
-        // 필요한 청크가 9개여도 한 프레임에는 maxChunkLoadsPerFrame개만 만듭니다.
-        // 그래서 플레이어가 같은 청크에 머물러 있어도, 아직 못 만든 청크가 있으면
-        // 다음 프레임에도 스트리밍 갱신을 계속해야 합니다.
-        // currentCenterChunk가 null이면 아직 비교할 이전 중심 청크가 없다는 뜻입니다.
-        // 하지만 실제로 계속 로드할지 여부는 아래 hasMissingChunks가 판단합니다.
-        bool hasMissingChunks = HasMissingChunks();
-
-        if (!force && !centerChanged && !hasMissingChunks)
+        Camera cameraToUse = editCamera != null ? editCamera : Camera.main;
+        if (!chunkStreamer.Update(
+                force,
+                targetChunk,
+                cameraToUse,
+                worldSettings,
+                chunks,
+                out IReadOnlyList<ChunkPos> chunksToLoad,
+                out IReadOnlyCollection<ChunkPos> chunksToUnload,
+                out HashSet<ChunkPos> chunksNeedingRebuild))
         {
             return;
         }
 
-        currentCenterChunk = targetChunk;
-
-        // requiredChunks는 "지금 새로 로드해야 하는 청크 목록"이고,
-        // unloadProtectedChunks는 "아직 유지해도 되는 청크 목록"입니다.
-        // 이렇게 로드 반경과 언로드 반경을 분리해 경계에서 생겼다 사라지는 떨림을 줄입니다.
-        chunksNeedingRebuildBuffer.Clear();
-        HashSet<ChunkPos> chunksNeedingRebuild = chunksNeedingRebuildBuffer;
-        if (centerChanged || force)
-        {
-            CollectRemovedUnloadProtectedChunks(cachedUnloadProtectedChunks, removedUnloadProtectedChunks);
-            CollectChunksNeedingRebuildForRemovedChunks(removedUnloadProtectedChunks, chunksNeedingRebuild);
-            UnloadChunks(removedUnloadProtectedChunks);
-            ReplaceActiveUnloadProtectedChunks(cachedUnloadProtectedChunks);
-        }
-
-        LoadRequiredChunks(cachedRequiredChunks, targetChunk, chunksNeedingRebuild);
+        UnloadChunks(chunksToUnload);
+        LoadRequiredChunks(chunksToLoad, chunksNeedingRebuild);
         QueueChunksNeedingMesh(chunksNeedingRebuild);
     }
 
@@ -283,29 +207,7 @@ public sealed class ChunkManager : MonoBehaviour
         }
 
         ChunkPos centerChunk = GetStreamingCenterChunk();
-        chunkColliderPolicy.ApplyUsage(centerChunk, worldSettings.ColliderDistanceInChunks, renderers);
-    }
-
-    private void DrawColliderDebugGizmos()
-    {
-        int chunkSize = ChunkData.DefaultSize;
-        foreach ((ChunkPos chunkPos, ChunkMeshController controller) in renderers)
-        {
-            if (!controller.HasActiveColliderMesh)
-            {
-                continue;
-            }
-
-            WorldPos origin = chunkPos.ToWorldOrigin(chunkSize);
-            Vector3 chunkCenter = new Vector3(
-                origin.X + (chunkSize * 0.5f),
-                origin.Y + (chunkSize * 0.5f),
-                origin.Z + (chunkSize * 0.5f));
-
-            Vector3 size = Vector3.one * (chunkSize * 0.9f);
-            Gizmos.color = new Color(0.1f, 1f, 0.25f, 0.55f);
-            Gizmos.DrawWireCube(chunkCenter, size);
-        }
+        chunkColliderUpdater.Update(centerChunk, worldSettings.ColliderDistanceInChunks, renderers);
     }
 
     private void AlignStreamingTargetToSurface()
@@ -462,10 +364,7 @@ public sealed class ChunkManager : MonoBehaviour
             }
 
             chunks.Remove(chunkPos);
-            if (cachedRequiredChunks.Contains(chunkPos))
-            {
-                cachedMissingRequiredChunkCount++;
-            }
+            chunkStreamer.NotifyChunkUnloaded(chunkPos);
 
             if (renderers.TryGetValue(chunkPos, out ChunkMeshController renderer))
             {
@@ -477,27 +376,10 @@ public sealed class ChunkManager : MonoBehaviour
         }
     }
 
-    // 현재 "반드시 로드돼 있어야 하는 청크 집합"에 아직 비어 있는 항목이 있는지 확인합니다.
-    // required 집합이 바뀔 때만 누락 개수를 다시 세고, 평소 프레임에는 그 캐시된 개수만 조회합니다.
-    private bool HasMissingChunks()
-    {
-        return cachedMissingRequiredChunkCount > 0;
-    }
-
     private void LoadRequiredChunks(
-        IReadOnlyCollection<ChunkPos> requiredChunks,
-        ChunkPos centerChunk,
+        IReadOnlyList<ChunkPos> loadPlan,
         HashSet<ChunkPos> chunksNeedingRebuild)
     {
-        int maxChunkLoadsPerFrame = worldSettings.MaxChunkLoadsPerFrame;
-        Camera cameraToUse = editCamera != null ? editCamera : Camera.main;
-        IReadOnlyList<ChunkPos> loadPlan = loadPlanner.BuildLoadPlan(
-            requiredChunks,
-            chunks,
-            centerChunk,
-            cameraToUse,
-            maxChunkLoadsPerFrame,
-            worldSettings.LoadPriorityShortlistMultiplier);
         int loadCount = loadPlan.Count;
         VoxelPerformanceStats.RecordChunkLoadCount(loadCount);
 
@@ -508,10 +390,7 @@ public sealed class ChunkManager : MonoBehaviour
             ChunkPos chunkPos = loadPlan[i];
             ChunkData chunkData = CreateChunkData(chunkPos);
             chunks.Add(chunkPos, chunkData);
-            if (cachedRequiredChunks.Contains(chunkPos) && cachedMissingRequiredChunkCount > 0)
-            {
-                cachedMissingRequiredChunkCount--;
-            }
+            chunkStreamer.NotifyChunkLoaded(chunkPos);
 
             CreateChunkMeshController(chunkPos, CreateNeighborhood(chunkPos));
             QueueChunkInitialBuild(chunkPos);
@@ -519,47 +398,6 @@ public sealed class ChunkManager : MonoBehaviour
             // 새 청크가 들어오면 그 청크와 맞닿은 기존 청크들의 경계 면 판정이 달라질 수 있습니다.
             // 새 청크 자신은 별도 초기 메싱 큐에서 처리하고, 여기서는 이웃만 다시 보게 합니다.
             AddAdjacentChunkPositions(chunkPos, chunksNeedingRebuild);
-        }
-    }
-
-    private void CollectChunksNeedingRebuildForRemovedChunks(
-        IReadOnlyCollection<ChunkPos> removedChunks,
-        HashSet<ChunkPos> chunksNeedingRebuild)
-    {
-        foreach (ChunkPos chunkPos in removedChunks)
-        {
-            // 사라질 청크 자신은 곧 삭제되므로 재빌드할 필요가 없습니다.
-            // 대신 그 청크에 맞닿아 있던 이웃은 "바깥이 공기인지"를 다시 계산해야 합니다.
-            AddAdjacentChunkPositions(chunkPos, chunksNeedingRebuild);
-        }
-    }
-
-    private void CollectRemovedUnloadProtectedChunks(
-        IReadOnlyCollection<ChunkPos> currentUnloadProtectedChunks,
-        List<ChunkPos> removedChunks)
-    {
-        removedChunks.Clear();
-        currentUnloadProtectedChunkSetBuffer.Clear();
-        foreach (ChunkPos chunkPos in currentUnloadProtectedChunks)
-        {
-            currentUnloadProtectedChunkSetBuffer.Add(chunkPos);
-        }
-
-        foreach (ChunkPos chunkPos in activeUnloadProtectedChunks)
-        {
-            if (!currentUnloadProtectedChunkSetBuffer.Contains(chunkPos))
-            {
-                removedChunks.Add(chunkPos);
-            }
-        }
-    }
-
-    private void ReplaceActiveUnloadProtectedChunks(IReadOnlyCollection<ChunkPos> unloadProtectedChunks)
-    {
-        activeUnloadProtectedChunks.Clear();
-        foreach (ChunkPos chunkPos in unloadProtectedChunks)
-        {
-            activeUnloadProtectedChunks.Add(chunkPos);
         }
     }
 
@@ -600,25 +438,11 @@ public sealed class ChunkManager : MonoBehaviour
         return data;
     }
 
-    private void RecountMissingRequiredChunks()
-    {
-        int missingCount = 0;
-        foreach (ChunkPos chunkPos in cachedRequiredChunks)
-        {
-            if (!chunks.ContainsKey(chunkPos))
-            {
-                missingCount++;
-            }
-        }
-
-        cachedMissingRequiredChunkCount = missingCount;
-    }
-
     private void ClearRuntimeChunks()
     {
         meshBuildQueue.Clear();
         chunkControllerPool?.Clear();
-        cachedMissingRequiredChunkCount = 0;
+        chunkStreamer.Reset();
         for (int i = transform.childCount - 1; i >= 0; i--)
         {
             Transform child = transform.GetChild(i);
@@ -660,7 +484,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void AddAdjacentChunkPositions(ChunkPos chunkPos, HashSet<ChunkPos> chunksNeedingRebuild)
     {
-        foreach (ChunkPos offset in NeighborChunkOffsets)
+        foreach (ChunkPos offset in ChunkPos.OrthogonalOffsets)
         {
             chunksNeedingRebuild.Add(new ChunkPos(
                 chunkPos.X + offset.X,

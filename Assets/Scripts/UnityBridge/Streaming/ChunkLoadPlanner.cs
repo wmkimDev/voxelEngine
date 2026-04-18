@@ -2,8 +2,6 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // "이번 프레임에 어떤 청크를 로드할지"를 계산하는 전용 계획기입니다.
-// ChunkManager에서 직접 들고 있던 정렬기, 시야 우선순위 계산기, 임시 버퍼들을 이쪽으로 모아
-// 로드 후보 선정 책임을 한 곳에 모읍니다.
 public sealed class ChunkLoadPlanner
 {
     private readonly ChunkLoadScheduler loadScheduler = new();

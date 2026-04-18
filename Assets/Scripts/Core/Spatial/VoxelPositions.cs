@@ -82,6 +82,16 @@ public readonly struct WorldPos : IEquatable<WorldPos>
 
 public readonly struct ChunkPos : IEquatable<ChunkPos>
 {
+    public static readonly ChunkPos[] OrthogonalOffsets =
+    {
+        new ChunkPos(1, 0, 0),
+        new ChunkPos(-1, 0, 0),
+        new ChunkPos(0, 1, 0),
+        new ChunkPos(0, -1, 0),
+        new ChunkPos(0, 0, 1),
+        new ChunkPos(0, 0, -1),
+    };
+
     public readonly int X;
     public readonly int Y;
     public readonly int Z;

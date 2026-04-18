@@ -6,18 +6,27 @@ using System.Collections.Generic;
 // JobNaive와 JobGreedy가 같은 준비/정리 흐름을 재사용하게 합니다.
 public struct JobMeshBuildBuffers
 {
+    // 이웃 청크가 없을 때 재사용하는 "전부 Air" voxel 버퍼 캐시입니다.
     private static readonly Dictionary<int, byte[]> EmptyVoxelBuffersByLength = new();
 
+    // 현재 버퍼가 대응하는 청크 한 변 길이입니다.
     public int Size;
+
+    // 중심 청크와 6방향 이웃 청크의 voxel 데이터를 Job이 읽기 좋은 Native 형태로 담습니다.
     public NativeChunkNeighborhood Neighborhood;
+
+    // 메셔가 최종적으로 채우는 메시 출력 버퍼입니다.
     public NativeList<Vec3> Vertices;
     public NativeList<int> Triangles;
     public NativeList<Vec3> Normals;
     public NativeList<Vec2> Uvs;
+
+    // greedy meshing에서 한 slice를 스캔할 때만 쓰는 임시 마스크 버퍼입니다.
     public NativeArray<byte> MaskVisible;
     public NativeArray<byte> MaskVoxelTypes;
     public NativeArray<byte> Consumed;
 
+    // 청크 크기에 맞는 입력/출력 Native 버퍼 묶음을 새로 만듭니다.
     public static JobMeshBuildBuffers Create(
         int size,
         bool includeGreedyScratchBuffers,
@@ -65,6 +74,7 @@ public struct JobMeshBuildBuffers
         return buffers;
     }
 
+    // 이번 빌드에 사용할 중심/이웃 voxel 데이터를 복사하고, 이전 메시 결과 버퍼를 비웁니다.
     public void Populate(ChunkNeighborhood neighborhood)
     {
         Neighborhood.Size = neighborhood.Size;
@@ -82,6 +92,7 @@ public struct JobMeshBuildBuffers
         Uvs.Clear();
     }
 
+    // NativeList 기반 출력 버퍼를 그대로 쓰는 쿼드 작성기 뷰를 반환합니다.
     public NativeQuadWriter CreateWriter()
     {
         return new NativeQuadWriter
@@ -93,6 +104,7 @@ public struct JobMeshBuildBuffers
         };
     }
 
+    // 이 묶음이 소유한 모든 Native 메모리를 정리합니다.
     public void Dispose()
     {
         if (Neighborhood.Center.IsCreated) Neighborhood.Center.Dispose();
@@ -144,6 +156,7 @@ public struct JobMeshBuildBuffers
         }
     }
 
+    // 길이별 빈 voxel 버퍼를 재사용해 "전부 Air" 복사를 빠르게 처리합니다.
     private static byte[] GetEmptyVoxelBuffer(int length)
     {
         if (!EmptyVoxelBuffersByLength.TryGetValue(length, out byte[] emptyBuffer))
