@@ -48,6 +48,12 @@ public sealed class VoxelWorldSettings : ScriptableObject
     [SerializeField] private int topSoilDepth = 4;
     [SerializeField] private int topSoilDepthVariation = 2;
 
+    [Header("Atmosphere")]
+    [SerializeField] private bool enableFog = false;
+    [SerializeField] private Color fogColor = new(0.78f, 0.84f, 0.9f, 1f);
+    [SerializeField] private float fogStartDistance = 110f;
+    [SerializeField] private float fogEndDistance = 260f;
+
     public StreamingMode ActiveStreamingMode => streamingMode;
     public int ViewDistanceInChunks => viewDistanceInChunks;
     public int UnloadDistanceInChunks => unloadDistanceInChunks;
@@ -69,6 +75,10 @@ public sealed class VoxelWorldSettings : ScriptableObject
     public int HeightAmplitude => heightAmplitude;
     public int TopSoilDepth => topSoilDepth;
     public int TopSoilDepthVariation => topSoilDepthVariation;
+    public bool EnableFog => enableFog;
+    public Color FogColor => fogColor;
+    public float FogStartDistance => fogStartDistance;
+    public float FogEndDistance => fogEndDistance;
 
     public NoiseWorldGeneratorSettings ToNoiseWorldGeneratorSettings()
     {
@@ -97,5 +107,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
         heightAmplitude = Mathf.Max(1, heightAmplitude);
         topSoilDepth = Mathf.Max(1, topSoilDepth);
         topSoilDepthVariation = Mathf.Max(0, topSoilDepthVariation);
+        fogStartDistance = Mathf.Max(0f, fogStartDistance);
+        fogEndDistance = Mathf.Max(fogStartDistance + 0.1f, fogEndDistance);
     }
 }

@@ -74,6 +74,7 @@ public sealed class ChunkManager : MonoBehaviour
             return;
         }
 
+        ApplyAtmosphereSettings();
         VoxelPerformanceStats.Reset();
         // 캐시도 world settings를 단일 기준으로 따라가게 합니다.
         chunkDataCache.SetCapacity(worldSettings.CachedChunkCount);
@@ -97,6 +98,11 @@ public sealed class ChunkManager : MonoBehaviour
     private void OnValidate()
     {
         spawnHeightPadding = Mathf.Max(0f, spawnHeightPadding);
+
+        if (Application.isPlaying && worldSettings != null)
+        {
+            ApplyAtmosphereSettings();
+        }
     }
 
     private void OnDrawGizmos()
@@ -117,6 +123,7 @@ public sealed class ChunkManager : MonoBehaviour
             return;
         }
 
+        ApplyAtmosphereSettings();
         ClearRuntimeChunks();
         chunks.Clear();
         renderers.Clear();
@@ -189,6 +196,15 @@ public sealed class ChunkManager : MonoBehaviour
         Debug.LogError("ChunkManager requires a VoxelWorldSettings asset reference.", this);
         enabled = false;
         return false;
+    }
+
+    private void ApplyAtmosphereSettings()
+    {
+        RenderSettings.fog = worldSettings.EnableFog;
+        RenderSettings.fogMode = FogMode.Linear;
+        RenderSettings.fogColor = worldSettings.FogColor;
+        RenderSettings.fogStartDistance = worldSettings.FogStartDistance;
+        RenderSettings.fogEndDistance = worldSettings.FogEndDistance;
     }
 
     private void UpdateStreaming(bool force)

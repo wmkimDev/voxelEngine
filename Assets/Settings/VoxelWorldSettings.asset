@@ -31,9 +31,9 @@ MonoBehaviour:
   noiseScale: 34
   baseHeight: 18
   heightAmplitude: 32
-  beachHeight: 5
   topSoilDepth: 4
   topSoilDepthVariation: 2
-  caveNoiseScale: 36
-  caveThreshold: 0.92
-  caveSurfaceClearance: 7
+  enableFog: 1
+  fogColor: {r: 0.77, g: 0.84, b: 0.9, a: 1}
+  fogStartDistance: 120
+  fogEndDistance: 280

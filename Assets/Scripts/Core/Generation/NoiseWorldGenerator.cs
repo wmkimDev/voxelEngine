@@ -46,35 +46,41 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
         float sampleX = (worldX + (Seed * 37.13f)) / settings.NoiseScale;
         float sampleZ = (worldZ + (Seed * 91.71f)) / settings.NoiseScale;
 
-        // 먼저 "평원용 높이"를 만듭니다.
-        // 이 값은 전체적으로 완만하고 낮게 유지해서, 산맥 지역이 아닌 곳에서는
-        // 초원/평지/언덕처럼 읽히도록 의도적으로 진폭을 작게 둡니다.
-        float plainBroadNoise = ValueNoise(sampleX * 0.95f, sampleZ * 0.95f);
-        float plainDetailNoise = ValueNoise((sampleX * 2.8f) + 17.3f, (sampleZ * 2.8f) + 42.7f);
-        float plainsNoise = (plainBroadNoise * 0.82f) + (plainDetailNoise * 0.18f);
-        float plainsHeight = settings.HeightAmplitude * ((plainsNoise * 0.16f) + 0.08f);
+        // 평원은 완전히 평평하지 않고, 완만한 구릉이 길게 이어지도록 저주파와 중주파를 섞습니다.
+        float plainBroadNoise = ValueNoise(sampleX * 0.78f, sampleZ * 0.78f);
+        float plainMidNoise = ValueNoise((sampleX * 1.65f) + 17.3f, (sampleZ * 1.65f) + 42.7f);
+        float plainDetailNoise = ValueNoise((sampleX * 3.1f) - 51.2f, (sampleZ * 3.1f) + 11.8f);
+        float plainsNoise = (plainBroadNoise * 0.62f) + (plainMidNoise * 0.28f) + (plainDetailNoise * 0.10f);
+        float plainsHeight = settings.HeightAmplitude * ((plainsNoise * 0.20f) + 0.10f);
 
-        // 아주 저주파 노이즈로 "산맥이 등장하는 지역"을 먼저 정합니다.
-        // 문턱값을 지나기 전까지는 거의 평원처럼 남기고,
-        // 문턱을 넘은 뒤에는 산맥 형태가 빠르게 강해지도록 마스크를 더 날카롭게 만듭니다.
-        float mountainRegionNoise = ValueNoise((sampleX * 0.18f) - 73.1f, (sampleZ * 0.18f) + 41.7f);
-        float mountainRegion = SmoothClampRange(mountainRegionNoise, 0.6f, 0.82f);
-        mountainRegion *= mountainRegion * mountainRegion;
+        // 산맥 지역은 더 넓고 부드럽게 열리게 해서, 평원에서 산악 지대로 넘어가는 구간이 덜 딱딱하게 보이게 합니다.
+        float mountainRegionNoise = ValueNoise((sampleX * 0.15f) - 73.1f, (sampleZ * 0.15f) + 41.7f);
+        float mountainRegion = SmoothClampRange(mountainRegionNoise, 0.52f, 0.80f);
+        float foothillRegion = mountainRegion * mountainRegion;
+        float coreMountainRegion = foothillRegion * mountainRegion;
 
-        // 산맥 지역은 저주파 "산 덩어리"와 중주파 "능선"을 함께 써서,
-        // 멀리서도 산맥처럼 보이는 큰 실루엣과 가까이서 읽히는 골짜기/능선을 동시에 만듭니다.
-        float mountainMassNoise = ValueNoise((sampleX * 0.42f) - 25.4f, (sampleZ * 0.42f) + 61.7f);
-        float mountainMassHeight = settings.HeightAmplitude * mountainRegion * ((mountainMassNoise * 0.5f) + 0.35f) * 0.7f;
+        // 산 덩어리는 두 개의 큰 저주파 층을 섞어 한쪽으로만 기울지 않게 만듭니다.
+        float mountainMassNoiseA = ValueNoise((sampleX * 0.34f) - 25.4f, (sampleZ * 0.34f) + 61.7f);
+        float mountainMassNoiseB = ValueNoise((sampleX * 0.58f) + 12.7f, (sampleZ * 0.58f) - 44.9f);
+        float mountainMassShape = (mountainMassNoiseA * 0.58f) + (mountainMassNoiseB * 0.42f);
+        float foothillHeight = settings.HeightAmplitude * foothillRegion * ((mountainMassShape * 0.24f) + 0.06f);
+        float mountainMassHeight = settings.HeightAmplitude * coreMountainRegion * ((mountainMassShape * 0.72f) + 0.22f);
 
-        float ridgePrimaryNoise = ValueNoise((sampleX * 0.82f) + 89.4f, (sampleZ * 0.82f) + 12.6f);
-        float ridgeSecondaryNoise = ValueNoise((sampleX * 1.74f) - 31.8f, (sampleZ * 1.74f) + 57.1f);
-        float ridgePrimary = 1f - Math.Abs((ridgePrimaryNoise * 2f) - 1f);
-        float ridgeSecondary = 1f - Math.Abs((ridgeSecondaryNoise * 2f) - 1f);
-        float mountainRidgeHeight = settings.HeightAmplitude * mountainRegion * ((ridgePrimary * 1.1f) + (ridgeSecondary * 0.45f));
+        // 능선은 그대로 ridged noise를 쓰되, 거친 톱니 느낌을 줄이기 위해 살짝 부드럽게 눌러줍니다.
+        float ridgePrimaryNoise = ValueNoise((sampleX * 0.74f) + 89.4f, (sampleZ * 0.74f) + 12.6f);
+        float ridgeSecondaryNoise = ValueNoise((sampleX * 1.32f) - 31.8f, (sampleZ * 1.32f) + 57.1f);
+        float ridgePrimary = SoftRidgedNoise(ridgePrimaryNoise);
+        float ridgeSecondary = SoftRidgedNoise(ridgeSecondaryNoise);
+        float ridgeShape = (ridgePrimary * 0.70f) + (ridgeSecondary * 0.30f);
+        float mountainRidgeHeight = settings.HeightAmplitude * coreMountainRegion * ((ridgeShape * 0.85f) + 0.10f);
 
-        // 산맥 지역에선 평원 진폭을 줄이고, 대신 큰 산 실루엣이 분명히 읽히게 합니다.
-        float blendedPlainsHeight = plainsHeight * (1f - (mountainRegion * 0.7f));
-        float finalHeight = blendedPlainsHeight + mountainMassHeight + mountainRidgeHeight;
+        // 산맥 사이에 골짜기가 더 자연스럽게 생기도록 약한 valley term을 넣습니다.
+        float valleyNoise = ValueNoise((sampleX * 0.52f) - 141.4f, (sampleZ * 0.52f) + 19.6f);
+        float valleyDepth = settings.HeightAmplitude * coreMountainRegion * ((1f - valleyNoise) * 0.18f);
+
+        // 산지로 갈수록 평원 기복을 줄이되 완전히 사라지지 않게 해서, 전환부가 더 자연스럽게 이어집니다.
+        float blendedPlainsHeight = plainsHeight * (1f - (foothillRegion * 0.45f));
+        float finalHeight = blendedPlainsHeight + foothillHeight + mountainMassHeight + mountainRidgeHeight - valleyDepth;
 
         return settings.BaseHeight + (int)Math.Floor(finalHeight + 0.5f);
     }
@@ -168,6 +174,12 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
     private static float Lerp(float a, float b, float t)
     {
         return a + ((b - a) * t);
+    }
+
+    private static float SoftRidgedNoise(float value)
+    {
+        float ridged = 1f - Math.Abs((value * 2f) - 1f);
+        return SmoothStep(ridged);
     }
 
     private static float SmoothClampRange(float value, float min, float max)
