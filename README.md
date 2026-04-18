@@ -1,5 +1,7 @@
 # VoxelEngine
 
+<img width="1215" height="957" alt="screenshot" src="https://github.com/user-attachments/assets/61a4bb93-495e-4039-8733-6b2e42a6848b" />
+
 **절차적 월드 생성**, **청크 스트리밍**, **복셀 메시 최적화**를 중심으로 구현한 Unity 기반 복셀 엔진 프로젝트입니다.
 
 이 프로젝트는  
