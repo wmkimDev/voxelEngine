@@ -41,12 +41,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
     [SerializeField] private byte placeVoxelType = VoxelType.Grass;
 
     [Header("World Generation")]
-    [SerializeField] private int seed = 12345;
-    [SerializeField] private float noiseScale = 26f;
-    [SerializeField] private int baseHeight = 5;
-    [SerializeField] private int heightAmplitude = 7;
-    [SerializeField] private int topSoilDepth = 4;
-    [SerializeField] private int topSoilDepthVariation = 2;
+    [SerializeField] private TerrainGenerationSettings terrainGenerationSettings;
 
     [Header("Atmosphere")]
     [SerializeField] private bool enableFog = false;
@@ -69,12 +64,7 @@ public sealed class VoxelWorldSettings : ScriptableObject
     public Texture2D VoxelAtlas => voxelAtlas;
     public float EditDistance => editDistance;
     public byte PlaceVoxelType => placeVoxelType;
-    public int Seed => seed;
-    public float NoiseScale => noiseScale;
-    public int BaseHeight => baseHeight;
-    public int HeightAmplitude => heightAmplitude;
-    public int TopSoilDepth => topSoilDepth;
-    public int TopSoilDepthVariation => topSoilDepthVariation;
+    public TerrainGenerationSettings TerrainGenerationSettings => terrainGenerationSettings;
     public bool EnableFog => enableFog;
     public Color FogColor => fogColor;
     public float FogStartDistance => fogStartDistance;
@@ -82,13 +72,9 @@ public sealed class VoxelWorldSettings : ScriptableObject
 
     public NoiseWorldGeneratorSettings ToNoiseWorldGeneratorSettings()
     {
-        return new NoiseWorldGeneratorSettings(
-            seed,
-            noiseScale,
-            baseHeight,
-            heightAmplitude,
-            topSoilDepth,
-            topSoilDepthVariation);
+        return terrainGenerationSettings != null
+            ? terrainGenerationSettings.ToNoiseWorldGeneratorSettings()
+            : new NoiseWorldGeneratorSettings(12345, 34f, 18, 32, 4, 2);
     }
 
     private void OnValidate()
@@ -102,11 +88,6 @@ public sealed class VoxelWorldSettings : ScriptableObject
         loadPriorityShortlistMultiplier = Mathf.Max(1, loadPriorityShortlistMultiplier);
         editDistance = Mathf.Max(0.1f, editDistance);
         placeVoxelType = (byte)Mathf.Clamp(placeVoxelType, VoxelType.Dirt, VoxelType.Sand);
-        noiseScale = Mathf.Max(0.001f, noiseScale);
-        baseHeight = Mathf.Max(0, baseHeight);
-        heightAmplitude = Mathf.Max(1, heightAmplitude);
-        topSoilDepth = Mathf.Max(1, topSoilDepth);
-        topSoilDepthVariation = Mathf.Max(0, topSoilDepthVariation);
         fogStartDistance = Mathf.Max(0f, fogStartDistance);
         fogEndDistance = Mathf.Max(fogStartDistance + 0.1f, fogEndDistance);
     }

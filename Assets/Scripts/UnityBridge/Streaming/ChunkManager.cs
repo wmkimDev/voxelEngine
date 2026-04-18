@@ -319,7 +319,9 @@ public sealed class ChunkManager : MonoBehaviour
         Vector3 targetPosition = target.position;
         int worldX = Mathf.FloorToInt(targetPosition.x);
         int worldZ = Mathf.FloorToInt(targetPosition.z);
-        int surfaceHeight = worldGenerator.GetSurfaceHeight(worldX, worldZ);
+        int surfaceHeight = worldGenerator is NoiseWorldGenerator noiseWorldGenerator
+            ? noiseWorldGenerator.GetSurfaceHeight(worldX, worldZ)
+            : 0;
 
         // 플레이어/스트리밍 타깃의 위치는 발 위치 기준으로 보고 있으므로,
         // 표면 voxel의 윗면(surfaceHeight + 1)보다 살짝 위에 시작시킵니다.
