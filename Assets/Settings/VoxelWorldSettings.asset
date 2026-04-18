@@ -19,7 +19,9 @@ MonoBehaviour:
   cachedChunkCount: 2048
   minLayerY: 0
   maxLayerY: 5
-  maxChunkLoadsPerFrame: 2
+  maxChunkLoadsPerFrame: 4
+  loadPriorityShortlistMultiplier: 4
+  maxChunkRebuildsPerFrame: 6
   meshBuilderMode: 3
   material: {fileID: 2100000, guid: 72c9ab1d241f149249ef92f2b5184cd0, type: 2}
   voxelAtlas: {fileID: 2800000, guid: f5b65f01b0c9403984a57d1d77d9c3a6, type: 3}

@@ -14,19 +14,25 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
     public void Generate(ChunkPos chunkPos, IChunkDataStore chunkData)
     {
         int chunkSize = chunkData.Size;
+        int worldBaseX = chunkPos.X * chunkSize;
+        int worldBaseY = chunkPos.Y * chunkSize;
+        int worldBaseZ = chunkPos.Z * chunkSize;
+        int[,] surfaceHeights = new int[chunkSize, chunkSize];
+        int[,] soilDepths = new int[chunkSize, chunkSize];
+
+        BuildColumnMaps(chunkSize, worldBaseX, worldBaseZ, surfaceHeights, soilDepths);
 
         for (int z = 0; z < chunkSize; z++)
         {
             for (int x = 0; x < chunkSize; x++)
             {
-                int worldX = (chunkPos.X * chunkSize) + x;
-                int worldZ = (chunkPos.Z * chunkSize) + z;
-                int surfaceHeight = GetSurfaceHeight(worldX, worldZ);
+                int surfaceHeight = surfaceHeights[x, z];
+                int soilDepth = soilDepths[x, z];
 
                 for (int y = 0; y < chunkSize; y++)
                 {
-                    int worldY = (chunkPos.Y * chunkSize) + y;
-                    byte voxelType = GetVoxelType(worldX, worldY, worldZ, surfaceHeight);
+                    int worldY = worldBaseY + y;
+                    byte voxelType = GetVoxelType(worldY, surfaceHeight, soilDepth);
                     chunkData.SetVoxel(new LocalPos(x, y, z), voxelType);
                 }
             }
@@ -73,29 +79,40 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
         return settings.BaseHeight + (int)Math.Floor(finalHeight + 0.5f);
     }
 
-    private byte GetVoxelType(int worldX, int worldY, int worldZ, int surfaceHeight)
+    private void BuildColumnMaps(
+        int chunkSize,
+        int worldBaseX,
+        int worldBaseZ,
+        int[,] surfaceHeights,
+        int[,] soilDepths)
+    {
+        for (int z = 0; z < chunkSize; z++)
+        {
+            int worldZ = worldBaseZ + z;
+            for (int x = 0; x < chunkSize; x++)
+            {
+                int worldX = worldBaseX + x;
+                surfaceHeights[x, z] = GetSurfaceHeight(worldX, worldZ);
+                soilDepths[x, z] = GetTopSoilDepth(worldX, worldZ);
+            }
+        }
+    }
+
+    private byte GetVoxelType(int worldY, int surfaceHeight, int soilDepth)
     {
         if (worldY > surfaceHeight)
         {
             return VoxelType.Air;
         }
 
-        if (ShouldCarveCave(worldX, worldY, worldZ, surfaceHeight))
-        {
-            return VoxelType.Air;
-        }
-
-        bool isBeachSurface = surfaceHeight <= settings.BeachHeight;
-        int soilDepth = GetTopSoilDepth(worldX, worldZ);
-
         if (worldY == surfaceHeight)
         {
-            return isBeachSurface ? VoxelType.Sand : VoxelType.Grass;
+            return VoxelType.Grass;
         }
 
         if (worldY >= surfaceHeight - soilDepth)
         {
-            return isBeachSurface ? VoxelType.Sand : VoxelType.Dirt;
+            return VoxelType.Dirt;
         }
 
         return VoxelType.Stone;
@@ -107,40 +124,6 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
         float sampleZ = ((worldZ * 0.35f) + (Seed * 53.92f)) / settings.NoiseScale;
         float variation = ValueNoise(sampleX, sampleZ);
         return settings.TopSoilDepth + (int)Math.Round(variation * settings.TopSoilDepthVariation);
-    }
-
-    private bool ShouldCarveCave(int worldX, int worldY, int worldZ, int surfaceHeight)
-    {
-        // 표면 바로 아래까지 동굴을 파면 지형 윗면이 쉽게 무너지므로,
-        // 최소 두께를 남겨 둔 뒤에만 3D 노이즈로 내부를 비웁니다.
-        if (worldY >= surfaceHeight - settings.CaveSurfaceClearance)
-        {
-            return false;
-        }
-
-        // 3D 동굴 노이즈를 바로 쓰면 월드 전역에 스파게티처럼 퍼지기 쉽습니다.
-        // 먼저 아주 저주파 2D 마스크로 "이 지역은 동굴이 날 만한가"를 한 번 더 거른 뒤,
-        // 그 안에서만 실제 동굴을 뚫어 동굴 출현 구역 자체를 드물게 만듭니다.
-        float caveRegionX = (worldX + (Seed * 5.19f)) / (settings.CaveNoiseScale * 3.6f);
-        float caveRegionZ = (worldZ + (Seed * 9.47f)) / (settings.CaveNoiseScale * 3.6f);
-        float caveRegionNoise = ValueNoise(caveRegionX, caveRegionZ);
-        float caveRegionMask = SmoothClampRange(caveRegionNoise, 0.76f, 0.92f);
-        caveRegionMask *= caveRegionMask;
-        if (caveRegionMask <= 0f)
-        {
-            return false;
-        }
-
-        float sampleX = (worldX + (Seed * 11.17f)) / settings.CaveNoiseScale;
-        float sampleY = (worldY + (Seed * 23.71f)) / settings.CaveNoiseScale;
-        float sampleZ = (worldZ + (Seed * 47.33f)) / settings.CaveNoiseScale;
-        float caveNoise = ValueNoise(sampleX, sampleY, sampleZ);
-        float ridgedNoise = 1f - Math.Abs((caveNoise * 2f) - 1f);
-
-        // 지역 마스크가 약한 곳은 사실상 더 높은 threshold가 필요하도록 만들어,
-        // "가끔 보이는 큰 동굴 구역" 위주로 남기고 잔가닥 동굴은 줄입니다.
-        float effectiveThreshold = settings.CaveThreshold + ((1f - caveRegionMask) * 0.08f);
-        return ridgedNoise >= effectiveThreshold;
     }
 
     private float ValueNoise(float x, float z)
@@ -163,58 +146,12 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
         return Lerp(top, bottom, tz);
     }
 
-    private float ValueNoise(float x, float y, float z)
-    {
-        int x0 = (int)Math.Floor(x);
-        int y0 = (int)Math.Floor(y);
-        int z0 = (int)Math.Floor(z);
-        int x1 = x0 + 1;
-        int y1 = y0 + 1;
-        int z1 = z0 + 1;
-
-        float tx = SmoothStep(x - x0);
-        float ty = SmoothStep(y - y0);
-        float tz = SmoothStep(z - z0);
-
-        float c000 = HashNoise(x0, y0, z0);
-        float c100 = HashNoise(x1, y0, z0);
-        float c010 = HashNoise(x0, y1, z0);
-        float c110 = HashNoise(x1, y1, z0);
-        float c001 = HashNoise(x0, y0, z1);
-        float c101 = HashNoise(x1, y0, z1);
-        float c011 = HashNoise(x0, y1, z1);
-        float c111 = HashNoise(x1, y1, z1);
-
-        float x00 = Lerp(c000, c100, tx);
-        float x10 = Lerp(c010, c110, tx);
-        float x01 = Lerp(c001, c101, tx);
-        float x11 = Lerp(c011, c111, tx);
-        float y0Blend = Lerp(x00, x10, ty);
-        float y1Blend = Lerp(x01, x11, ty);
-        return Lerp(y0Blend, y1Blend, tz);
-    }
-
     private float HashNoise(int x, int z)
     {
         unchecked
         {
             int hash = Seed;
             hash = (hash * 397) ^ x;
-            hash = (hash * 397) ^ z;
-            hash ^= hash >> 13;
-            hash *= 1274126177;
-            hash ^= hash >> 16;
-            return (hash & 0x7fffffff) / (float)int.MaxValue;
-        }
-    }
-
-    private float HashNoise(int x, int y, int z)
-    {
-        unchecked
-        {
-            int hash = Seed;
-            hash = (hash * 397) ^ x;
-            hash = (hash * 397) ^ y;
             hash = (hash * 397) ^ z;
             hash ^= hash >> 13;
             hash *= 1274126177;
@@ -231,11 +168,6 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
     private static float Lerp(float a, float b, float t)
     {
         return a + ((b - a) * t);
-    }
-
-    private static float Clamp01(float value)
-    {
-        return Math.Max(0f, Math.Min(1f, value));
     }
 
     private static float SmoothClampRange(float value, float min, float max)
