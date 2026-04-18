@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System;
 using UnityEngine;
-using UnityEngine.Pool;
 
 public sealed class ChunkManager : MonoBehaviour
 {
@@ -27,7 +26,7 @@ public sealed class ChunkManager : MonoBehaviour
 
     // 새 청크의 첫 메싱과 기존 청크 재빌드를 예산 안에서 처리하는 큐입니다.
     private readonly ChunkMeshBuildQueue meshBuildQueue = new();
-    private ObjectPool<ChunkMeshBuildController> chunkControllerPool;
+    private ChunkMeshBuildControllerPool chunkControllerPool;
 
     public int LoadedChunkCount => chunks.Count;
     public Vector3 StreamingTargetPosition => GetStreamingTargetPosition();
@@ -399,39 +398,20 @@ public sealed class ChunkManager : MonoBehaviour
 
     private void SpawnAndRegisterChunkMeshBuildController(ChunkPos chunkPos, ChunkNeighborhood neighborhood)
     {
-        ChunkMeshBuildController renderer = AcquireChunkMeshBuildController();
-        GameObject chunkObject = renderer.gameObject;
-        chunkObject.name = $"Chunk ({chunkPos.X}, {chunkPos.Y}, {chunkPos.Z})";
-        chunkObject.transform.SetParent(transform, worldPositionStays: false);
-        WorldPos chunkOrigin = chunkPos.ToWorldOrigin(neighborhood.Size);
-        chunkObject.transform.localPosition = new Vector3(chunkOrigin.X, chunkOrigin.Y, chunkOrigin.Z);
-
-        renderer.Initialize(
+        ChunkMeshBuildController renderer = chunkControllerPool.Acquire(
+            chunkPos,
             neighborhood,
             meshBuilder,
             worldSettings.Material,
             worldSettings.VoxelAtlas,
-            rebuildImmediately: false);
-
-        ChunkEditInteractor editInteractor = chunkObject.GetComponent<ChunkEditInteractor>();
-        editInteractor.Initialize(
-            neighborhood.Center,
             editedLocalPos => QueueAffectedChunksForEdit(chunkPos, editedLocalPos));
 
         renderers.Add(chunkPos, renderer);
     }
 
-    // 풀에서 청크 메시 빌드 컨트롤러를 하나 가져옵니다.
-    private ChunkMeshBuildController AcquireChunkMeshBuildController()
-    {
-        EnsureChunkControllerPool();
-        return chunkControllerPool.Get();
-    }
-
     // 컨트롤러 상태를 초기화한 뒤 풀에 반납합니다.
     private void ReleaseChunkMeshBuildController(ChunkMeshBuildController renderer)
     {
-        renderer.ResetForPooling();
         chunkControllerPool.Release(renderer);
     }
 
@@ -443,52 +423,7 @@ public sealed class ChunkManager : MonoBehaviour
             return;
         }
 
-        chunkControllerPool = new ObjectPool<ChunkMeshBuildController>(
-            CreatePooledChunkMeshBuildController,
-            OnTakeChunkMeshBuildControllerFromPool,
-            OnReturnChunkMeshBuildControllerToPool,
-            OnDestroyPooledChunkMeshBuildController,
-            collectionCheck: false,
-            defaultCapacity: 32,
-            maxSize: 8192);
-    }
-
-    // 풀에 들어갈 비활성 청크 컨트롤러 GameObject를 생성합니다.
-    private ChunkMeshBuildController CreatePooledChunkMeshBuildController()
-    {
-        var chunkObject = new GameObject("Pooled Chunk");
-        chunkObject.transform.SetParent(transform, worldPositionStays: false);
-        ChunkMeshBuildController renderer = chunkObject.AddComponent<ChunkMeshBuildController>();
-        chunkObject.AddComponent<ChunkEditInteractor>();
-        chunkObject.SetActive(false);
-        return renderer;
-    }
-
-    // 풀에서 꺼낸 컨트롤러 GameObject를 다시 활성화합니다.
-    private static void OnTakeChunkMeshBuildControllerFromPool(ChunkMeshBuildController renderer)
-    {
-        if (renderer != null)
-        {
-            renderer.gameObject.SetActive(true);
-        }
-    }
-
-    // 풀에 반납되는 컨트롤러 GameObject를 비활성화합니다.
-    private static void OnReturnChunkMeshBuildControllerToPool(ChunkMeshBuildController renderer)
-    {
-        if (renderer != null)
-        {
-            renderer.gameObject.SetActive(false);
-        }
-    }
-
-    // 풀 자체가 정리될 때 남은 컨트롤러 GameObject를 파괴합니다.
-    private static void OnDestroyPooledChunkMeshBuildController(ChunkMeshBuildController renderer)
-    {
-        if (renderer != null)
-        {
-            Destroy(renderer.gameObject);
-        }
+        chunkControllerPool = new ChunkMeshBuildControllerPool(transform);
     }
 
     // 한 청크에 맞닿은 6방향 이웃을 재빌드 후보 집합에 추가합니다.
