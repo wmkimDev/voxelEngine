@@ -9,21 +9,99 @@ using System.Collections.Generic;
 // 실제 RebuildMesh 호출 자체는 여기서 하지 않고, ChunkManager가 넘겨준 processChunk 콜백으로 위임합니다.
 public sealed class ChunkMeshBuildQueue
 {
+    private sealed class PendingChunkQueue
+    {
+        // "현재 아직 처리 안 된 청크"를 O(1)로 확인하기 위한 집합입니다.
+        private readonly HashSet<ChunkPos> pendingChunkSet = new();
+
+        // 실제 처리 순서를 유지하는 리스트입니다.
+        // 항목을 한 번 넣고 nextIndex를 전진시키며 소비합니다.
+        private readonly List<ChunkPos> orderedChunks = new();
+
+        // 다음 프레임에 어디부터 이어서 처리할지 가리키는 인덱스입니다.
+        private int nextIndex;
+
+        public int Count => pendingChunkSet.Count;
+
+        public bool Contains(ChunkPos chunkPos)
+        {
+            return pendingChunkSet.Contains(chunkPos);
+        }
+
+        public void Clear()
+        {
+            pendingChunkSet.Clear();
+            orderedChunks.Clear();
+            nextIndex = 0;
+        }
+
+        public void Remove(ChunkPos chunkPos)
+        {
+            pendingChunkSet.Remove(chunkPos);
+            CompactIfFullyConsumed();
+        }
+
+        public void Enqueue(ChunkPos chunkPos)
+        {
+            if (!pendingChunkSet.Add(chunkPos))
+            {
+                return;
+            }
+
+            orderedChunks.Add(chunkPos);
+        }
+
+        public int ProcessFrameBudget(int maxBuildCount, Func<ChunkPos, bool> processChunk)
+        {
+            if (maxBuildCount <= 0 || pendingChunkSet.Count == 0)
+            {
+                return 0;
+            }
+
+            int buildsPerformed = 0;
+            while (nextIndex < orderedChunks.Count && buildsPerformed < maxBuildCount)
+            {
+                ChunkPos chunkPos = orderedChunks[nextIndex];
+                nextIndex++;
+
+                // 중간에 제거된 청크는 pending set에서 빠져 있으므로 그냥 건너뜁니다.
+                if (!pendingChunkSet.Remove(chunkPos))
+                {
+                    continue;
+                }
+
+                if (processChunk(chunkPos))
+                {
+                    buildsPerformed++;
+                }
+            }
+
+            CompactIfFullyConsumed();
+            return buildsPerformed;
+        }
+
+        private void CompactIfFullyConsumed()
+        {
+            // nextIndex가 리스트 끝까지 도달했다는 건 현재 OrderedList를 모두 소비했다는 뜻입니다.
+            // 그 시점엔 남은 대기 항목이 orderedChunks 앞쪽에 없으므로 통째로 비우고
+            // 다음 enqueue부터 새 큐처럼 다시 시작합니다.
+            if (nextIndex < orderedChunks.Count)
+            {
+                return;
+            }
+
+            orderedChunks.Clear();
+            nextIndex = 0;
+        }
+    }
+
     // 새로 로드된 청크가 "아직 한 번도 메시를 만든 적 없음" 상태일 때 대기하는 큐입니다.
     // 일반 재빌드보다 우선순위가 높아서, 이번 프레임 예산이 있으면 먼저 처리합니다.
-    private readonly HashSet<ChunkPos> pendingInitialBuildChunks = new();
-
-    // initial build 큐를 이번 프레임에 안전하게 순회하기 위한 스냅샷 버퍼입니다.
-    // HashSet을 순회하면서 동시에 수정할 수 없어서, 처리 시작 전에 List로 복사해 둡니다.
-    private readonly List<ChunkPos> initialBuildQueueSnapshot = new();
+    private readonly PendingChunkQueue pendingInitialBuildChunks = new();
 
     // 이미 한 번은 메시가 있었던 청크들의 일반 재빌드 대기 큐입니다.
     // 로드/언로드 경계 변화나 편집 후 이웃 갱신 같은 요청이 여기로 들어옵니다.
-    private readonly HashSet<ChunkPos> pendingRebuildChunks = new();
-
-    // rebuild 큐를 이번 프레임에 안전하게 순회하기 위한 스냅샷 버퍼입니다.
-    // initial build와 같은 이유로, 처리 시작 전에 HashSet 내용을 List로 옮겨 둡니다.
-    private readonly List<ChunkPos> rebuildQueueSnapshot = new();
+    private readonly PendingChunkQueue pendingRebuildChunks = new();
 
     public bool HasPendingBuilds => pendingInitialBuildChunks.Count > 0 || pendingRebuildChunks.Count > 0;
 
@@ -32,9 +110,7 @@ public sealed class ChunkMeshBuildQueue
     public void Clear()
     {
         pendingInitialBuildChunks.Clear();
-        initialBuildQueueSnapshot.Clear();
         pendingRebuildChunks.Clear();
-        rebuildQueueSnapshot.Clear();
     }
 
     // 언로드된 청크나 더 이상 유효하지 않은 청크를 큐에서 제거합니다.
@@ -51,7 +127,7 @@ public sealed class ChunkMeshBuildQueue
     public void QueueInitialBuild(ChunkPos chunkPos)
     {
         pendingRebuildChunks.Remove(chunkPos);
-        pendingInitialBuildChunks.Add(chunkPos);
+        pendingInitialBuildChunks.Enqueue(chunkPos);
     }
 
     // 이미 존재하는 청크의 일반 재빌드를 예약합니다.
@@ -63,7 +139,7 @@ public sealed class ChunkMeshBuildQueue
             return;
         }
 
-        pendingRebuildChunks.Add(chunkPos);
+        pendingRebuildChunks.Enqueue(chunkPos);
     }
 
     // 이번 프레임에 처리할 빌드 예산을 소비합니다.
@@ -79,57 +155,24 @@ public sealed class ChunkMeshBuildQueue
 
         int initialBuildsPerformed = ProcessQueue(
             pendingInitialBuildChunks,
-            initialBuildQueueSnapshot,
             maxBuildCount,
             processChunk);
         int remainingBudget = Math.Max(0, maxBuildCount - initialBuildsPerformed);
         int rebuildsPerformed = ProcessQueue(
             pendingRebuildChunks,
-            rebuildQueueSnapshot,
             remainingBudget,
             processChunk);
 
         return initialBuildsPerformed + rebuildsPerformed;
     }
 
-    // 하나의 큐(initial 또는 rebuild)를 스냅샷으로 꺼내 예산만큼 처리합니다.
-    // HashSet을 직접 순회하면서 동시에 수정할 수 없기 때문에, 이번 프레임 처리분은 List 스냅샷으로 복사합니다.
-    // 예산을 넘긴 나머지 청크는 다시 원래 큐로 되돌려 다음 프레임에 이어서 처리합니다.
+    // 하나의 큐(initial 또는 rebuild)에서 nextIndex부터 예산만큼 이어서 처리합니다.
+    // 매 프레임 스냅샷을 다시 만들지 않고, OrderedList 상태를 그대로 유지합니다.
     private static int ProcessQueue(
-        HashSet<ChunkPos> pendingChunks,
-        List<ChunkPos> queueSnapshot,
+        PendingChunkQueue pendingChunks,
         int maxBuildCount,
         Func<ChunkPos, bool> processChunk)
     {
-        if (maxBuildCount <= 0 || pendingChunks.Count == 0)
-        {
-            return 0;
-        }
-
-        queueSnapshot.Clear();
-        foreach (ChunkPos chunkPos in pendingChunks)
-        {
-            queueSnapshot.Add(chunkPos);
-        }
-
-        pendingChunks.Clear();
-
-        int buildCount = Math.Min(maxBuildCount, queueSnapshot.Count);
-        int buildsPerformed = 0;
-        for (int i = 0; i < buildCount; i++)
-        {
-            if (processChunk(queueSnapshot[i]))
-            {
-                buildsPerformed++;
-            }
-        }
-
-        for (int i = buildCount; i < queueSnapshot.Count; i++)
-        {
-            pendingChunks.Add(queueSnapshot[i]);
-        }
-
-        queueSnapshot.Clear();
-        return buildsPerformed;
+        return pendingChunks.ProcessFrameBudget(maxBuildCount, processChunk);
     }
 }
