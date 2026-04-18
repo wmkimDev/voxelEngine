@@ -31,6 +31,18 @@ public sealed class ChunkLoadPlanner
             }
         }
 
+        BuildDistanceShortlist(centerChunk, maxChunkLoadsPerFrame, shortlistMultiplier);
+        RankShortlistByVisibilityAndForward(cameraToUse, centerChunk, maxChunkLoadsPerFrame);
+
+        return loadPriorityShortlistBuffer;
+    }
+
+    // 아직 로드되지 않은 청크들 중에서 거리 기준으로만 1차 shortlist를 만듭니다.
+    private void BuildDistanceShortlist(
+        ChunkPos centerChunk,
+        int maxChunkLoadsPerFrame,
+        int shortlistMultiplier)
+    {
         int shortlistCount = Mathf.Min(
             chunksToLoadBuffer.Count,
             maxChunkLoadsPerFrame * shortlistMultiplier);
@@ -43,7 +55,14 @@ public sealed class ChunkLoadPlanner
             preferredChunkPositions: null,
             forwardPriorityScores: null,
             shortlistCount);
+    }
 
+    // 거리 shortlist만 대상으로, 카메라에 보이는지와 바라보는 방향 점수를 반영해 최종 순위를 다시 매깁니다.
+    private void RankShortlistByVisibilityAndForward(
+        Camera cameraToUse,
+        ChunkPos centerChunk,
+        int maxChunkLoadsPerFrame)
+    {
         streamingPriorityEvaluator.CollectVisibleChunkPositions(
             cameraToUse,
             loadPriorityShortlistBuffer,
@@ -58,7 +77,5 @@ public sealed class ChunkLoadPlanner
             visibleChunkPositionsBuffer,
             forwardPriorityScoresBuffer,
             maxChunkLoadsPerFrame);
-
-        return loadPriorityShortlistBuffer;
     }
 }

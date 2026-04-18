@@ -8,7 +8,7 @@ public sealed class ChunkColliderUpdater
     private readonly ChunkColliderPolicy chunkColliderPolicy = new();
 
     // 현재 중심 청크와 로드된 renderer 집합을 기준으로 collider on/off를 갱신합니다.
-    public void Update(ChunkPos centerChunk, int colliderRadiusInChunks, IReadOnlyDictionary<ChunkPos, ChunkMeshController> renderers)
+    public void Update(ChunkPos centerChunk, int colliderRadiusInChunks, IReadOnlyDictionary<ChunkPos, ChunkMeshBuildController> renderers)
     {
         if (renderers.Count == 0)
         {
@@ -19,10 +19,10 @@ public sealed class ChunkColliderUpdater
     }
 
     // 현재 실제 collider mesh가 살아 있는 청크만 Scene/Game 뷰 기즈모로 그립니다.
-    public void DrawDebugGizmos(IReadOnlyDictionary<ChunkPos, ChunkMeshController> renderers)
+    public void DrawDebugGizmos(IReadOnlyDictionary<ChunkPos, ChunkMeshBuildController> renderers)
     {
         int chunkSize = ChunkData.DefaultSize;
-        foreach ((ChunkPos chunkPos, ChunkMeshController controller) in renderers)
+        foreach ((ChunkPos chunkPos, ChunkMeshBuildController controller) in renderers)
         {
             if (!controller.HasActiveColliderMesh)
             {

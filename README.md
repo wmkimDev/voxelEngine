@@ -218,7 +218,7 @@ Unity 런타임과 연결되는 레이어입니다.
 1. [/Users/wmk/Desktop/Projects/VoxelEngine/Assets/Scripts/UnityBridge/Streaming/ChunkManager.cs](/Users/wmk/Desktop/Projects/VoxelEngine/Assets/Scripts/UnityBridge/Streaming/ChunkManager.cs)
 2. [/Users/wmk/Desktop/Projects/VoxelEngine/Assets/Scripts/UnityBridge/Streaming/ChunkStreamer.cs](/Users/wmk/Desktop/Projects/VoxelEngine/Assets/Scripts/UnityBridge/Streaming/ChunkStreamer.cs)
 3. [/Users/wmk/Desktop/Projects/VoxelEngine/Assets/Scripts/UnityBridge/Settings/VoxelWorldSettings.cs](/Users/wmk/Desktop/Projects/VoxelEngine/Assets/Scripts/UnityBridge/Settings/VoxelWorldSettings.cs)
-4. [/Users/wmk/Desktop/Projects/VoxelEngine/Assets/Scripts/UnityBridge/Meshing/ChunkMeshController.cs](/Users/wmk/Desktop/Projects/VoxelEngine/Assets/Scripts/UnityBridge/Meshing/ChunkMeshController.cs)
+4. [/Users/wmk/Desktop/Projects/VoxelEngine/Assets/Scripts/UnityBridge/Meshing/ChunkMeshBuildController.cs](/Users/wmk/Desktop/Projects/VoxelEngine/Assets/Scripts/UnityBridge/Meshing/ChunkMeshBuildController.cs)
 5. [/Users/wmk/Desktop/Projects/VoxelEngine/Assets/Scripts/Core/Generation/NoiseWorldGenerator.cs](/Users/wmk/Desktop/Projects/VoxelEngine/Assets/Scripts/Core/Generation/NoiseWorldGenerator.cs)
 
 ## 라이선스

@@ -4,10 +4,10 @@ using System.Diagnostics;
 #endif
 
 [RequireComponent(typeof(ChunkMeshPresenter))]
-public sealed class ChunkMeshController : MonoBehaviour
+public sealed class ChunkMeshBuildController : MonoBehaviour
 {
     // 플레이 중 비동기 메시 빌드 상태를 한곳에 모아둡니다.
-    // handle, 재빌드 재요청 여부, 측정용 스톱워치를 ChunkMeshController 필드로 흩뿌리지 않기 위한 묶음입니다.
+    // handle, 재빌드 재요청 여부, 측정용 스톱워치를 ChunkMeshBuildController 필드로 흩뿌리지 않기 위한 묶음입니다.
     private sealed class MeshBuildState
     {
         // 현재 백그라운드에서 돌고 있는 메시 빌드 작업입니다.
@@ -33,13 +33,13 @@ public sealed class ChunkMeshController : MonoBehaviour
     private ChunkMeshPresenter meshPresenter;
     private readonly MeshBuildState meshBuildState = new();
 
-    public bool IsColliderActive => GetMeshPresenter().IsColliderActive;
-    public bool HasActiveColliderMesh => GetMeshPresenter().HasActiveColliderMesh;
-    public bool HasRenderableMesh => GetMeshPresenter().HasRenderableMesh;
+    public bool IsColliderActive => EnsureMeshPresenter().IsColliderActive;
+    public bool HasActiveColliderMesh => EnsureMeshPresenter().HasActiveColliderMesh;
+    public bool HasRenderableMesh => EnsureMeshPresenter().HasRenderableMesh;
 
     private void Awake()
     {
-        UpdateLateUpdateSubscription();
+        SyncLateUpdateSubscription();
     }
 
     public void Initialize(
@@ -57,14 +57,14 @@ public sealed class ChunkMeshController : MonoBehaviour
 
         if (rebuildImmediately)
         {
-            RebuildMesh();
+            RequestMeshRebuild();
             return;
         }
 
-        UpdateLateUpdateSubscription();
+        SyncLateUpdateSubscription();
     }
 
-    public void UpdateNeighborhood(ChunkNeighborhood chunkNeighborhood)
+    public void UpdateChunkNeighborhood(ChunkNeighborhood chunkNeighborhood)
     {
         neighborhood = chunkNeighborhood;
         chunkData = chunkNeighborhood.Center;
@@ -82,7 +82,7 @@ public sealed class ChunkMeshController : MonoBehaviour
             return;
         }
 
-        CompletePendingMeshBuild();
+        ApplyCompletedMeshBuild();
     }
 
     private void OnValidate()
@@ -92,23 +92,17 @@ public sealed class ChunkMeshController : MonoBehaviour
             return;
         }
 
-        RebuildMesh();
-        GetComponent<ChunkMeshPresenter>().EnsureMaterial();
+        RequestMeshRebuild();
+        EnsureMeshPresenter().EnsureMaterial();
     }
 
     private void OnDestroy()
     {
-        if (meshBuildState.PendingHandle != null)
-        {
-            // Job이 아직 끝나지 않았더라도 Complete()를 호출해 네이티브 메모리를 정리합니다.
-            meshBuildState.PendingHandle.Complete();
-            meshBuildState.PendingHandle = null;
-        }
-
-        UpdateLateUpdateSubscription();
+        CompleteAndClearPendingBuild();
+        SyncLateUpdateSubscription();
     }
 
-    public void RebuildMesh()
+    public void RequestMeshRebuild()
     {
         if (chunkData == null)
         {
@@ -118,42 +112,26 @@ public sealed class ChunkMeshController : MonoBehaviour
         // 에디터/비플레이 상태에서는 즉시 결과를 적용해 인스펙터와 씬 뷰 반응성을 유지합니다.
         if (!Application.isPlaying)
         {
-            BeginMeshBuildTiming();
-            IMeshBuildHandle immediateHandle = meshBuilder.Schedule(neighborhood);
-            ChunkMeshData immediateMeshData = immediateHandle.Complete();
-            double rebuildMilliseconds = EndMeshBuildTiming();
-            GetMeshPresenter().ApplyMeshData(immediateMeshData, rebuildMilliseconds);
+            RebuildMeshInEditor();
             return;
         }
 
-        if (meshBuildState.PendingHandle != null)
-        {
-            // 빌드가 끝나기 전에 다시 요청이 오면, 완료 직후 최신 neighborhood로 한 번 더 스케줄합니다.
-            meshBuildState.RebuildRequestedWhilePending = true;
-            return;
-        }
-
-        ScheduleMeshBuild();
+        RequestAsyncRebuild();
     }
 
     public void SetColliderUsage(bool shouldEnableCollider)
     {
-        GetMeshPresenter().SetColliderUsage(shouldEnableCollider);
+        EnsureMeshPresenter().SetColliderUsage(shouldEnableCollider);
     }
 
-    public void ReleaseForPooling()
+    public void ResetForPooling()
     {
-        if (meshBuildState.PendingHandle != null)
-        {
-            meshBuildState.PendingHandle.Complete();
-            meshBuildState.PendingHandle = null;
-        }
-
+        CompleteAndClearPendingBuild();
         meshBuildState.RebuildRequestedWhilePending = false;
         chunkData = null;
         neighborhood = default;
-        UpdateLateUpdateSubscription();
-        GetMeshPresenter().ResetForPooling();
+        SyncLateUpdateSubscription();
+        EnsureMeshPresenter().ResetForPooling();
 
         if (TryGetComponent(out ChunkEditInteractor editInteractor))
         {
@@ -161,14 +139,37 @@ public sealed class ChunkMeshController : MonoBehaviour
         }
     }
 
-    private void ScheduleMeshBuild()
+    // 에디터/비플레이 모드에서는 즉시 메시를 만들고 바로 presenter에 적용합니다.
+    private void RebuildMeshInEditor()
+    {
+        BeginMeshBuildTiming();
+        IMeshBuildHandle immediateHandle = meshBuilder.Schedule(neighborhood);
+        ChunkMeshData immediateMeshData = immediateHandle.Complete();
+        double rebuildMilliseconds = EndMeshBuildTiming();
+        EnsureMeshPresenter().ApplyMeshData(immediateMeshData, rebuildMilliseconds);
+    }
+
+    // 플레이 중에는 pending 빌드와 재요청 여부를 고려해 비동기 rebuild를 예약합니다.
+    private void RequestAsyncRebuild()
+    {
+        if (meshBuildState.PendingHandle != null)
+        {
+            // 빌드가 끝나기 전에 다시 요청이 오면, 완료 직후 최신 neighborhood로 한 번 더 스케줄합니다.
+            meshBuildState.RebuildRequestedWhilePending = true;
+            return;
+        }
+
+        StartMeshBuild();
+    }
+
+    private void StartMeshBuild()
     {
         BeginMeshBuildTiming();
         meshBuildState.PendingHandle = meshBuilder.Schedule(neighborhood);
-        UpdateLateUpdateSubscription();
+        SyncLateUpdateSubscription();
     }
 
-    private void CompletePendingMeshBuild()
+    private void ApplyCompletedMeshBuild()
     {
         ChunkMeshData meshData = meshBuildState.PendingHandle is JobSystemMeshBuildHandle jobHandle
             ? jobHandle.Complete(meshBuildState.ReusableMeshData)
@@ -177,19 +178,19 @@ public sealed class ChunkMeshController : MonoBehaviour
         meshBuildState.PendingHandle = null;
         double rebuildMilliseconds = EndMeshBuildTiming();
 
-        GetMeshPresenter().ApplyMeshData(meshData, rebuildMilliseconds);
+        EnsureMeshPresenter().ApplyMeshData(meshData, rebuildMilliseconds);
 
         if (meshBuildState.RebuildRequestedWhilePending)
         {
             meshBuildState.RebuildRequestedWhilePending = false;
-            ScheduleMeshBuild();
+            StartMeshBuild();
             return;
         }
 
-        UpdateLateUpdateSubscription();
+        SyncLateUpdateSubscription();
     }
     
-    private ChunkMeshPresenter GetMeshPresenter()
+    private ChunkMeshPresenter EnsureMeshPresenter()
     {
         if (meshPresenter == null)
         {
@@ -217,7 +218,19 @@ public sealed class ChunkMeshController : MonoBehaviour
 #endif
     }
 
-    private void UpdateLateUpdateSubscription()
+    // pending handle이 남아 있을 때는 Complete를 호출해 Job 쪽 네이티브 메모리를 함께 정리합니다.
+    private void CompleteAndClearPendingBuild()
+    {
+        if (meshBuildState.PendingHandle == null)
+        {
+            return;
+        }
+
+        meshBuildState.PendingHandle.Complete();
+        meshBuildState.PendingHandle = null;
+    }
+
+    private void SyncLateUpdateSubscription()
     {
         if (!Application.isPlaying)
         {

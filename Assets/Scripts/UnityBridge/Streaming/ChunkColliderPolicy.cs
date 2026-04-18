@@ -18,7 +18,7 @@ public sealed class ChunkColliderPolicy
     // HashSet을 순회하면서 동시에 수정할 수 없어서 한 번 분리합니다.
     private readonly List<ChunkPos> chunksToDisable = new();
 
-    public void ApplyUsage(ChunkPos centerChunk, int colliderRadiusInChunks, IReadOnlyDictionary<ChunkPos, ChunkMeshController> renderers)
+    public void ApplyUsage(ChunkPos centerChunk, int colliderRadiusInChunks, IReadOnlyDictionary<ChunkPos, ChunkMeshBuildController> renderers)
     {
         // 1. 이번 프레임에 collider가 켜져 있어야 하는 청크 박스를 다시 계산합니다.
         desiredChunks.Clear();
@@ -27,7 +27,7 @@ public sealed class ChunkColliderPolicy
         // 2. desired에 포함된 청크는 전부 collider on을 보장합니다.
         foreach (ChunkPos chunkPos in desiredChunks)
         {
-            if (!renderers.TryGetValue(chunkPos, out ChunkMeshController controller))
+            if (!renderers.TryGetValue(chunkPos, out ChunkMeshBuildController controller))
             {
                 continue;
             }
@@ -51,7 +51,7 @@ public sealed class ChunkColliderPolicy
         // 4. 박스 밖으로 밀려난 청크만 collider를 끄고 active 집합에서도 제거합니다.
         foreach (ChunkPos chunkPos in chunksToDisable)
         {
-            if (renderers.TryGetValue(chunkPos, out ChunkMeshController controller))
+            if (renderers.TryGetValue(chunkPos, out ChunkMeshBuildController controller))
             {
                 controller.SetColliderUsage(false);
             }

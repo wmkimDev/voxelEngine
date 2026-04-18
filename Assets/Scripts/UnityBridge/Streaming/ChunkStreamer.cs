@@ -16,12 +16,12 @@ public sealed class ChunkStreamer
     // 현재 required/unload 집합 캐시가 어떤 중심 청크 기준으로 계산됐는지 나타냅니다.
     private ChunkPos? cachedCenterChunk;
     private readonly HashSet<ChunkPos> cachedRequiredChunks = new();
-    private readonly HashSet<ChunkPos> cachedUnloadProtectedChunks = new();
+    private readonly HashSet<ChunkPos> cachedRetainedChunks = new();
 
-    // 이전 프레임 unload 보호 집합과 현재 집합의 차이를 계산하기 위한 상태입니다.
-    private readonly HashSet<ChunkPos> activeUnloadProtectedChunks = new();
-    private readonly List<ChunkPos> removedUnloadProtectedChunks = new();
-    private readonly HashSet<ChunkPos> currentUnloadProtectedChunkSetBuffer = new();
+    // 이전 프레임 유지 집합과 현재 집합의 차이를 계산하기 위한 상태입니다.
+    private readonly HashSet<ChunkPos> activeRetainedChunks = new();
+    private readonly List<ChunkPos> removedRetainedChunks = new();
+    private readonly HashSet<ChunkPos> currentRetainedChunkSetBuffer = new();
 
     // 스트리밍 갱신 결과를 바깥으로 넘길 때 재사용하는 작업 버퍼입니다.
     private readonly HashSet<ChunkPos> chunksNeedingRebuildBuffer = new();
@@ -53,11 +53,11 @@ public sealed class ChunkStreamer
     {
         cachedCenterChunk = null;
         cachedRequiredChunks.Clear();
-        cachedUnloadProtectedChunks.Clear();
-        activeUnloadProtectedChunks.Clear();
-        removedUnloadProtectedChunks.Clear();
+        cachedRetainedChunks.Clear();
+        activeRetainedChunks.Clear();
+        removedRetainedChunks.Clear();
         chunksNeedingRebuildBuffer.Clear();
-        currentUnloadProtectedChunkSetBuffer.Clear();
+        currentRetainedChunkSetBuffer.Clear();
         cachedMissingRequiredChunkCount = 0;
     }
 
@@ -97,14 +97,7 @@ public sealed class ChunkStreamer
         }
 
         bool centerChanged = !cachedCenterChunk.HasValue || !targetChunk.Equals(cachedCenterChunk.Value);
-
-        if (force || centerChanged)
-        {
-            loadStreamingPolicy.CollectRequiredChunks(targetChunk, cachedRequiredChunks);
-            unloadStreamingPolicy.CollectRequiredChunks(targetChunk, cachedUnloadProtectedChunks);
-            cachedCenterChunk = targetChunk;
-            RecountMissingRequiredChunks(loadedChunks);
-        }
+        RefreshCachedSetsIfNeeded(force, centerChanged, targetChunk, loadedChunks);
 
         if (!force && !centerChanged && !HasMissingChunks())
         {
@@ -114,30 +107,63 @@ public sealed class ChunkStreamer
             chunksNeedingRebuild.Clear();
             return false;
         }
+
+        chunksToUnload = BuildUnloadDelta(force, centerChanged);
+        chunksToLoad = BuildLoadPlan(targetChunk, cameraToUse, worldSettings, loadedChunks);
+
+        chunksNeedingRebuild = chunksNeedingRebuildBuffer;
+        return true;
+    }
+
+    // 중심 청크가 바뀌었거나 강제 갱신일 때만 required/unload 집합 캐시를 다시 계산합니다.
+    private void RefreshCachedSetsIfNeeded(
+        bool force,
+        bool centerChanged,
+        ChunkPos targetChunk,
+        IReadOnlyDictionary<ChunkPos, ChunkData> loadedChunks)
+    {
+        if (!force && !centerChanged)
+        {
+            return;
+        }
+
+        loadStreamingPolicy.CollectRequiredChunks(targetChunk, cachedRequiredChunks);
+        unloadStreamingPolicy.CollectRequiredChunks(targetChunk, cachedRetainedChunks);
+        cachedCenterChunk = targetChunk;
+        RecountMissingRequiredChunks(loadedChunks);
+    }
+
+    // unload 보호 집합 delta를 계산하고, 사라지는 청크 주변의 재빌드 후보를 함께 모읍니다.
+    private IReadOnlyCollection<ChunkPos> BuildUnloadDelta(bool force, bool centerChanged)
+    {
         chunksNeedingRebuildBuffer.Clear();
 
-        if (centerChanged || force)
+        if (!force && !centerChanged)
         {
-            CollectRemovedUnloadProtectedChunks(cachedUnloadProtectedChunks, removedUnloadProtectedChunks);
-            CollectChunksNeedingRebuildForRemovedChunks(removedUnloadProtectedChunks, chunksNeedingRebuildBuffer);
-            ReplaceActiveUnloadProtectedChunks(cachedUnloadProtectedChunks);
-            chunksToUnload = removedUnloadProtectedChunks;
-        }
-        else
-        {
-            removedUnloadProtectedChunks.Clear();
-            chunksToUnload = removedUnloadProtectedChunks;
+            removedRetainedChunks.Clear();
+            return removedRetainedChunks;
         }
 
-        chunksToLoad = loadPlanner.BuildLoadPlan(
+        CollectRemovedRetainedChunks(cachedRetainedChunks, removedRetainedChunks);
+        CollectChunksNeedingRebuildForRemovedChunks(removedRetainedChunks, chunksNeedingRebuildBuffer);
+        ReplaceActiveRetainedChunks(cachedRetainedChunks);
+        return removedRetainedChunks;
+    }
+
+    // required 집합 캐시를 바탕으로 이번 프레임 실제 로드 순서를 계산합니다.
+    private IReadOnlyList<ChunkPos> BuildLoadPlan(
+        ChunkPos targetChunk,
+        Camera cameraToUse,
+        VoxelWorldSettings worldSettings,
+        IReadOnlyDictionary<ChunkPos, ChunkData> loadedChunks)
+    {
+        return loadPlanner.BuildLoadPlan(
             cachedRequiredChunks,
             loadedChunks,
             targetChunk,
             cameraToUse,
             worldSettings.MaxChunkLoadsPerFrame,
             worldSettings.LoadPriorityShortlistMultiplier);
-        chunksNeedingRebuild = chunksNeedingRebuildBuffer;
-        return true;
     }
 
     // required 집합 안에 아직 로드되지 않은 청크가 하나라도 있으면 스트리밍을 계속 진행해야 합니다.
@@ -161,21 +187,21 @@ public sealed class ChunkStreamer
         cachedMissingRequiredChunkCount = missingCount;
     }
 
-    // 이전 unload 보호 집합과 현재 집합의 차이를 구해, 이번 프레임에 빠져나간 청크만 뽑습니다.
-    private void CollectRemovedUnloadProtectedChunks(
-        IReadOnlyCollection<ChunkPos> currentUnloadProtectedChunks,
+    // 이전 유지 집합과 현재 집합의 차이를 구해, 이번 프레임에 유지 반경 밖으로 빠진 청크만 뽑습니다.
+    private void CollectRemovedRetainedChunks(
+        IReadOnlyCollection<ChunkPos> currentRetainedChunks,
         List<ChunkPos> removedChunks)
     {
         removedChunks.Clear();
-        currentUnloadProtectedChunkSetBuffer.Clear();
-        foreach (ChunkPos chunkPos in currentUnloadProtectedChunks)
+        currentRetainedChunkSetBuffer.Clear();
+        foreach (ChunkPos chunkPos in currentRetainedChunks)
         {
-            currentUnloadProtectedChunkSetBuffer.Add(chunkPos);
+            currentRetainedChunkSetBuffer.Add(chunkPos);
         }
 
-        foreach (ChunkPos chunkPos in activeUnloadProtectedChunks)
+        foreach (ChunkPos chunkPos in activeRetainedChunks)
         {
-            if (!currentUnloadProtectedChunkSetBuffer.Contains(chunkPos))
+            if (!currentRetainedChunkSetBuffer.Contains(chunkPos))
             {
                 removedChunks.Add(chunkPos);
             }
@@ -193,13 +219,13 @@ public sealed class ChunkStreamer
         }
     }
 
-    // 현재 unload 보호 집합을 다음 프레임 비교 기준으로 교체합니다.
-    private void ReplaceActiveUnloadProtectedChunks(IReadOnlyCollection<ChunkPos> unloadProtectedChunks)
+    // 현재 유지 집합을 다음 프레임 비교 기준으로 교체합니다.
+    private void ReplaceActiveRetainedChunks(IReadOnlyCollection<ChunkPos> retainedChunks)
     {
-        activeUnloadProtectedChunks.Clear();
-        foreach (ChunkPos chunkPos in unloadProtectedChunks)
+        activeRetainedChunks.Clear();
+        foreach (ChunkPos chunkPos in retainedChunks)
         {
-            activeUnloadProtectedChunks.Add(chunkPos);
+            activeRetainedChunks.Add(chunkPos);
         }
     }
 
@@ -208,10 +234,7 @@ public sealed class ChunkStreamer
     {
         foreach (ChunkPos offset in ChunkPos.OrthogonalOffsets)
         {
-            chunksNeedingRebuild.Add(new ChunkPos(
-                chunkPos.X + offset.X,
-                chunkPos.Y + offset.Y,
-                chunkPos.Z + offset.Z));
+            chunksNeedingRebuild.Add(chunkPos + offset);
         }
     }
 

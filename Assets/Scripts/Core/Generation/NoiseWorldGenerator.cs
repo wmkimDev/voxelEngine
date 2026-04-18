@@ -1,6 +1,6 @@
 using System;
 
-public sealed class NoiseWorldGenerator : IWorldGenerator
+public sealed class NoiseWorldGenerator : IWorldGenerator, ISurfaceHeightSampler
 {
     // 월드 좌표를 seed와 함께 샘플 공간으로 옮기는 오프셋입니다.
     private static class WorldNoise
@@ -119,7 +119,22 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
         float sampleX = (worldX + (Seed * WorldNoise.WorldOffsetX)) / settings.NoiseScale;
         float sampleZ = (worldZ + (Seed * WorldNoise.WorldOffsetZ)) / settings.NoiseScale;
 
-        // 평원은 완전히 평평하지 않고, 완만한 구릉이 길게 이어지도록 저주파와 중주파를 섞습니다.
+        float plainsHeight = ComputePlainsHeight(sampleX, sampleZ);
+        GetMountainRegions(sampleX, sampleZ, out float foothillRegion, out float coreMountainRegion);
+        float mountainMassHeight = ComputeMountainMassHeight(sampleX, sampleZ, foothillRegion, coreMountainRegion);
+        float mountainRidgeHeight = ComputeRidgeHeight(sampleX, sampleZ, coreMountainRegion);
+        float valleyDepth = ComputeValleyDepth(sampleX, sampleZ, coreMountainRegion);
+
+        // 산지로 갈수록 평원 기복을 줄이되 완전히 사라지지 않게 해서, 전환부가 더 자연스럽게 이어집니다.
+        float blendedPlainsHeight = plainsHeight * (1f - (foothillRegion * MountainNoise.MountainPlainBlendStrength));
+        float finalHeight = blendedPlainsHeight + mountainMassHeight + mountainRidgeHeight - valleyDepth;
+
+        return settings.BaseHeight + (int)Math.Floor(finalHeight + 0.5f);
+    }
+
+    // 평원/구릉의 완만한 기본 높이 실루엣을 계산합니다.
+    private float ComputePlainsHeight(float sampleX, float sampleZ)
+    {
         float plainBroadNoise = ValueNoise(sampleX * PlainsNoise.PlainBroadScale, sampleZ * PlainsNoise.PlainBroadScale);
         float plainMidNoise = ValueNoise(
             (sampleX * PlainsNoise.PlainMidScale) + PlainsNoise.PlainMidOffsetX,
@@ -131,10 +146,14 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
             (plainBroadNoise * PlainsNoise.PlainBroadWeight) +
             (plainMidNoise * PlainsNoise.PlainMidWeight) +
             (plainDetailNoise * PlainsNoise.PlainDetailWeight);
-        float plainsHeight = settings.HeightAmplitude *
-            ((plainsNoise * PlainsNoise.PlainHeightScale) + PlainsNoise.PlainHeightBias);
 
-        // 산맥 지역은 더 넓고 부드럽게 열리게 해서, 평원에서 산악 지대로 넘어가는 구간이 덜 딱딱하게 보이게 합니다.
+        return settings.HeightAmplitude *
+            ((plainsNoise * PlainsNoise.PlainHeightScale) + PlainsNoise.PlainHeightBias);
+    }
+
+    // 현재 위치가 산악 지대로 얼마나 들어왔는지에 따라 foothill/core 마스크를 계산합니다.
+    private void GetMountainRegions(float sampleX, float sampleZ, out float foothillRegion, out float coreMountainRegion)
+    {
         float mountainRegionNoise = ValueNoise(
             (sampleX * MountainNoise.MountainRegionScale) + MountainNoise.MountainRegionOffsetX,
             (sampleZ * MountainNoise.MountainRegionScale) + MountainNoise.MountainRegionOffsetZ);
@@ -142,10 +161,18 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
             mountainRegionNoise,
             MountainNoise.MountainRegionMin,
             MountainNoise.MountainRegionMax);
-        float foothillRegion = mountainRegion * mountainRegion;
-        float coreMountainRegion = foothillRegion * mountainRegion;
 
-        // 산 덩어리는 두 개의 큰 저주파 층을 섞어 한쪽으로만 기울지 않게 만듭니다.
+        foothillRegion = mountainRegion * mountainRegion;
+        coreMountainRegion = foothillRegion * mountainRegion;
+    }
+
+    // 산 덩어리와 foothill 기복을 함께 계산해 산악 지대의 큰 질량감을 만듭니다.
+    private float ComputeMountainMassHeight(
+        float sampleX,
+        float sampleZ,
+        float foothillRegion,
+        float coreMountainRegion)
+    {
         float mountainMassNoiseA = ValueNoise(
             (sampleX * MountainNoise.MountainMassScaleA) + MountainNoise.MountainMassOffsetAX,
             (sampleZ * MountainNoise.MountainMassScaleA) + MountainNoise.MountainMassOffsetAZ);
@@ -160,7 +187,12 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
         float mountainMassHeight = settings.HeightAmplitude * coreMountainRegion *
             ((mountainMassShape * MountainNoise.MountainMassShapeScale) + MountainNoise.MountainMassShapeBias);
 
-        // 능선은 그대로 ridged noise를 쓰되, 거친 톱니 느낌을 줄이기 위해 살짝 부드럽게 눌러줍니다.
+        return foothillHeight + mountainMassHeight;
+    }
+
+    // ridged noise 기반 능선 높이를 계산합니다.
+    private float ComputeRidgeHeight(float sampleX, float sampleZ, float coreMountainRegion)
+    {
         float ridgePrimaryNoise = ValueNoise(
             (sampleX * MountainNoise.RidgePrimaryScale) + MountainNoise.RidgePrimaryOffsetX,
             (sampleZ * MountainNoise.RidgePrimaryScale) + MountainNoise.RidgePrimaryOffsetZ);
@@ -172,21 +204,20 @@ public sealed class NoiseWorldGenerator : IWorldGenerator
         float ridgeShape =
             (ridgePrimary * MountainNoise.RidgePrimaryWeight) +
             (ridgeSecondary * MountainNoise.RidgeSecondaryWeight);
-        float mountainRidgeHeight = settings.HeightAmplitude * coreMountainRegion *
-            ((ridgeShape * MountainNoise.RidgeHeightScale) + MountainNoise.RidgeHeightBias);
 
-        // 산맥 사이에 골짜기가 더 자연스럽게 생기도록 약한 valley term을 넣습니다.
+        return settings.HeightAmplitude * coreMountainRegion *
+            ((ridgeShape * MountainNoise.RidgeHeightScale) + MountainNoise.RidgeHeightBias);
+    }
+
+    // 산맥 사이 골짜기를 눌러주는 valley 보정값을 계산합니다.
+    private float ComputeValleyDepth(float sampleX, float sampleZ, float coreMountainRegion)
+    {
         float valleyNoise = ValueNoise(
             (sampleX * MountainNoise.ValleyScale) + MountainNoise.ValleyOffsetX,
             (sampleZ * MountainNoise.ValleyScale) + MountainNoise.ValleyOffsetZ);
-        float valleyDepth = settings.HeightAmplitude * coreMountainRegion *
+
+        return settings.HeightAmplitude * coreMountainRegion *
             ((1f - valleyNoise) * MountainNoise.ValleyDepthScale);
-
-        // 산지로 갈수록 평원 기복을 줄이되 완전히 사라지지 않게 해서, 전환부가 더 자연스럽게 이어집니다.
-        float blendedPlainsHeight = plainsHeight * (1f - (foothillRegion * MountainNoise.MountainPlainBlendStrength));
-        float finalHeight = blendedPlainsHeight + foothillHeight + mountainMassHeight + mountainRidgeHeight - valleyDepth;
-
-        return settings.BaseHeight + (int)Math.Floor(finalHeight + 0.5f);
     }
 
     private void BuildColumnMaps(

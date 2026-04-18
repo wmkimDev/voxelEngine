@@ -11,6 +11,8 @@ public sealed class ChunkMeshBuildQueue
 {
     private sealed class PendingChunkQueue
     {
+        private const int MinimumSparseCompactionStaleCount = 32;
+
         // "현재 아직 처리 안 된 청크"를 O(1)로 확인하기 위한 집합입니다.
         private readonly HashSet<ChunkPos> pendingChunkSet = new();
 
@@ -37,7 +39,10 @@ public sealed class ChunkMeshBuildQueue
 
         public void Remove(ChunkPos chunkPos)
         {
+            // orderedChunks 중간 삭제는 비용이 크기 때문에, remove 시점엔 pending set에서만 빼고
+            // 리스트 안엔 tombstone처럼 남겨 둡니다. 대신 stale 항목이 너무 많아지면 중간 compaction을 돌립니다.
             pendingChunkSet.Remove(chunkPos);
+            CompactIfSparse();
             CompactIfFullyConsumed();
         }
 
@@ -78,6 +83,39 @@ public sealed class ChunkMeshBuildQueue
 
             CompactIfFullyConsumed();
             return buildsPerformed;
+        }
+
+        private void CompactIfSparse()
+        {
+            if (pendingChunkSet.Count == 0)
+            {
+                orderedChunks.Clear();
+                nextIndex = 0;
+                return;
+            }
+
+            int remainingEntries = orderedChunks.Count - nextIndex;
+            int staleEntryCount = remainingEntries - pendingChunkSet.Count;
+            if (staleEntryCount < MinimumSparseCompactionStaleCount || staleEntryCount < pendingChunkSet.Count)
+            {
+                return;
+            }
+
+            int writeIndex = 0;
+            for (int readIndex = nextIndex; readIndex < orderedChunks.Count; readIndex++)
+            {
+                ChunkPos chunkPos = orderedChunks[readIndex];
+                if (!pendingChunkSet.Contains(chunkPos))
+                {
+                    continue;
+                }
+
+                orderedChunks[writeIndex] = chunkPos;
+                writeIndex++;
+            }
+
+            orderedChunks.RemoveRange(writeIndex, orderedChunks.Count - writeIndex);
+            nextIndex = 0;
         }
 
         private void CompactIfFullyConsumed()

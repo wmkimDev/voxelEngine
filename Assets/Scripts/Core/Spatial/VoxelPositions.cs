@@ -103,6 +103,11 @@ public readonly struct ChunkPos : IEquatable<ChunkPos>
         Z = z;
     }
 
+    public static ChunkPos operator +(ChunkPos left, ChunkPos right)
+    {
+        return new ChunkPos(left.X + right.X, left.Y + right.Y, left.Z + right.Z);
+    }
+
     public WorldPos ToWorldOrigin(int chunkSize)
     {
         return new WorldPos(X * chunkSize, Y * chunkSize, Z * chunkSize);

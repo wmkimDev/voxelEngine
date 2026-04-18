@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-[RequireComponent(typeof(ChunkMeshController))]
+[RequireComponent(typeof(ChunkMeshBuildController))]
 public sealed class ChunkEditInteractor : MonoBehaviour
 {
     private IChunkDataStore chunkData;
