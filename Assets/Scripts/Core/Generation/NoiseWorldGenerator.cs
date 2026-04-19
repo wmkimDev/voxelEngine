@@ -106,7 +106,10 @@ public sealed class NoiseWorldGenerator : IWorldGenerator, ISurfaceHeightSampler
                 {
                     int worldY = worldBaseY + y;
                     byte voxelType = GetVoxelType(worldY, surfaceHeight, soilDepth);
-                    chunkData.SetVoxel(new LocalPos(x, y, z), voxelType);
+                    if (voxelType != VoxelType.Air)
+                    {
+                        chunkData.SetVoxel(new LocalPos(x, y, z), voxelType);
+                    }
                 }
             }
         }
